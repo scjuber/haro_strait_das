@@ -23,6 +23,8 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
+    const repoURL = "https://raw.githubusercontent.com/scjuber/haro_strait_das/main/";
+
     // --- Initialize map ---
     var map = L.map('map').setView([47.6, -122.3], 10);
 
@@ -30,8 +32,14 @@
       maxZoom: 19
     }).addTo(map);
 
+    // --- Load spectrogram index ---
+    let spectrogramIndex = [];
+    fetch(repoURL + "spectrogram_index.json")
+      .then(res => res.json())
+      .then(data => { spectrogramIndex = data; });
+
     // --- Load cable coordinates ---
-    fetch("cable_coords.json")
+    fetch(repoURL + "cable_coords.json")
       .then(res => res.json())
       .then(cableCoords => {
           // Draw cable track
@@ -43,13 +51,22 @@
                 .addTo(map)
                 .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
                 .on('click', function() {
-                    window.open('images/spectrogram_' + idx + '.png', '_blank');
+                    // Compute distance along cable
+                    let dx = 3.19; // spacing in meters
+                    let dist = idx * dx;
+
+                    // Find nearest spectrogram by distance
+                    let nearest = spectrogramIndex.reduce((prev, curr) => 
+                        Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
+                    );
+
+                    window.open(repoURL + 'images/' + nearest.file, '_blank');
                 });
           });
       });
 
     // --- Load Pintail track ---
-    Papa.parse("radar_pintail_track.csv", {
+    Papa.parse(repoURL + "radar_pintail_track.csv", {
       download: true,
       header: true,
       complete: function(results) {
@@ -72,7 +89,7 @@
     });
 
     // --- Load annotated waypoints ---
-    Papa.parse("annotated_waypoints.csv", {
+    Papa.parse(repoURL + "annotated_waypoints.csv", {
       download: true,
       header: true,
       complete: function(results) {
