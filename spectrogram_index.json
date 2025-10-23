@@ -1,0 +1,29 @@
+// --- Load spectrogram index ---
+let spectrogramIndex = [];
+fetch(repoURL + "spectrogram_index.json")
+  .then(res => res.json())
+  .then(data => { spectrogramIndex = data; });
+
+// --- Cable points ---
+fetch(repoURL + "cable_coords.json")
+  .then(res => res.json())
+  .then(cableCoords => {
+      var cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
+
+      cableCoords.forEach((c, idx) => {
+          L.circleMarker(c, {radius:4, color:'blue'})
+            .addTo(map)
+            .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
+            .on('click', function() {
+                // distance along cable (dx = 3.19 m)
+                let dist = idx * 3.19;
+
+                // find nearest spectrogram by distance
+                let nearest = spectrogramIndex.reduce((prev, curr) => 
+                    Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
+                );
+
+                window.open(repoURL + 'images/' + nearest.file, '_blank');
+            });
+      });
+  });
