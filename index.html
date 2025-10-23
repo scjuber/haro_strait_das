@@ -23,22 +23,19 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    // --- Base URLs for GitHub Pages ---
-    const rawBase = "https://raw.githubusercontent.com/scjuber/haro_strait_das/main/";
-
     // --- Initialize map ---
     var map = L.map('map').setView([47.6, -122.3], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
     // --- Load spectrogram index ---
     let spectrogramIndex = [];
-    fetch(rawBase + "spectrogram_index.json")
+    fetch("spectrogram_index.json")
       .then(res => res.json())
       .then(data => { spectrogramIndex = data; })
       .catch(err => console.error("Failed to load spectrogram_index.json", err));
 
     // --- Load cable coordinates ---
-    fetch(rawBase + "cable_coords.json")
+    fetch("cable_coords.json")
       .then(res => res.json())
       .then(cableCoords => {
           var cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
@@ -48,28 +45,61 @@
                 .addTo(map)
                 .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
                 .on('click', function() {
-                    let dx = 3.19; // spacing in meters
+                    let dx = 3.19; // spacing in meters along cable
                     let dist = idx * dx;
                     if (spectrogramIndex.length === 0) {
                         alert("Spectrogram index not loaded yet");
                         return;
                     }
-                    // find nearest spectrogram
-                    let nearest = spectrogramIndex.reduce((prev, curr) => 
+                    // Find nearest spectrogram by distance
+                    let nearest = spectrogramIndex.reduce((prev, curr) =>
                         Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
                     );
-                    window.open(rawBase + 'images/' + nearest.file, '_blank');
+                    window.open('images/' + nearest.file, '_blank');
                 });
           });
       })
       .catch(err => console.error("Failed to load cable_coords.json", err));
 
     // --- Load Pintail track ---
-    Papa.parse(rawBase + "radar_pintail_track.csv", {
+    Papa.parse("radar_pintail_track.csv", {
       download: true,
       header: true,
       complete: function(results) {
-          var trackCoords = r
-        
-     
+          var trackCoords = results.data
+              .filter(r => r.lat && r.lon)
+              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
+          if (trackCoords.length > 0) {
+              var pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
+              trackCoords.forEach((c, idx) => {
+                  L.circleMarker(c, {radius:4, color:'red'})
+                    .addTo(map)
+                    .bindPopup('<b>Pintail ' + idx + '</b>');
+              });
+              map.fitBounds(trackCoords);
+          }
+      },
+      error: function(err) { console.error("Failed to load radar_pintail_track.csv", err); }
+    });
 
+    // --- Load annotated waypoints ---
+    Papa.parse("annotated_waypoints.csv", {
+      download: true,
+      header: true,
+      complete: function(results) {
+          results.data.forEach(wp => {
+              if (wp.lat && wp.lon) {
+                  L.marker([parseFloat(wp.lat), parseFloat(wp.lon)])
+                    .addTo(map)
+                    .bindPopup('<b>Waypoint: ' + wp.name + '</b>');
+              }
+          });
+      },
+      error: function(err) { console.error("Failed to load annotated_waypoints.csv", err); }
+    });
+
+    // --- Optional test marker ---
+    // L.marker([47.6, -122.3]).addTo(map).bindPopup("Test marker");
+  </script>
+</body>
+</html>
