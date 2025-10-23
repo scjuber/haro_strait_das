@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Interactive Cable + Pintail Map</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { height: 95vh; width: 100%; }
+    h2 { text-align:center; margin: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Interactive Cable + Pintail Map</h2>
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- PapaParse for CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    // --- Initialize map ---
+    var map = L.map('map').setView([47.6, -122.3], 10);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    // --- Load cable coordinates ---
+    fetch("cable_coords.json")
+      .then(res => res.json())
+      .then(cableCoords => {
+          // Draw cable track
+          var cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
+
+          // Add clickable cable points
+          cableCoords.forEach((c, idx) => {
+              L.circleMarker(c, {radius:4, color:'blue'})
+                .addTo(map)
+                .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
+                .on('click', function() {
+                    window.open('images/spectrogram_' + idx + '.png', '_blank');
+                });
+          });
+      });
+
+    // --- Load Pintail track ---
+    Papa.parse("radar_pintail_track.csv", {
+      download: true,
+      header: true,
+      complete: function(results) {
+          var trackCoords = results.data
+              .filter(r => r.lat && r.lon)
+              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
+
+          var pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
+
+          // Add Pintail points
+          trackCoords.forEach((c, idx) => {
+              L.circleMarker(c, {radius:4, color:'red'})
+                .addTo(map)
+                .bindPopup('<b>Pintail ' + idx + '</b><br>Waypoint info');
+          });
+
+          // Fit map bounds to show both tracks
+          map.fitBounds(trackCoords);
+      }
+    });
+
+    // --- Load annotated waypoints ---
+    Papa.parse("annotated_waypoints.csv", {
+      download: true,
+      header: true,
+      complete: function(results) {
+          results.data.forEach(wp => {
+              if (wp.lat && wp.lon) {
+                  L.marker([parseFloat(wp.lat), parseFloat(wp.lon)])
+                    .addTo(map)
+                    .bindPopup('<b>Waypoint: ' + wp.name + '</b>');
+              }
+          });
+      }
+    });
+  </script>
+</body>
+</html>
