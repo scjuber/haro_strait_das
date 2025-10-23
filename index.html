@@ -23,85 +23,50 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    const repoURL = "https://raw.githubusercontent.com/scjuber/haro_strait_das/main/";
+    // --- Base URLs for GitHub Pages ---
+    const rawBase = "https://raw.githubusercontent.com/scjuber/haro_strait_das/main/";
 
     // --- Initialize map ---
     var map = L.map('map').setView([47.6, -122.3], 10);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19
-    }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
     // --- Load spectrogram index ---
     let spectrogramIndex = [];
-    fetch(repoURL + "spectrogram_index.json")
+    fetch(rawBase + "spectrogram_index.json")
       .then(res => res.json())
-      .then(data => { spectrogramIndex = data; });
+      .then(data => { spectrogramIndex = data; })
+      .catch(err => console.error("Failed to load spectrogram_index.json", err));
 
     // --- Load cable coordinates ---
-    fetch(repoURL + "cable_coords.json")
+    fetch(rawBase + "cable_coords.json")
       .then(res => res.json())
       .then(cableCoords => {
-          // Draw cable track
           var cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
 
-          // Add clickable cable points
           cableCoords.forEach((c, idx) => {
               L.circleMarker(c, {radius:4, color:'blue'})
                 .addTo(map)
                 .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
                 .on('click', function() {
-                    // Compute distance along cable
                     let dx = 3.19; // spacing in meters
                     let dist = idx * dx;
-
-                    // Find nearest spectrogram by distance
+                    if (spectrogramIndex.length === 0) {
+                        alert("Spectrogram index not loaded yet");
+                        return;
+                    }
+                    // find nearest spectrogram
                     let nearest = spectrogramIndex.reduce((prev, curr) => 
                         Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
                     );
-
-                    window.open(repoURL + 'images/' + nearest.file, '_blank');
+                    window.open(rawBase + 'images/' + nearest.file, '_blank');
                 });
           });
-      });
+      })
+      .catch(err => console.error("Failed to load cable_coords.json", err));
 
     // --- Load Pintail track ---
-    Papa.parse(repoURL + "radar_pintail_track.csv", {
+    Papa.parse(rawBase + "radar_pintail_track.csv", {
       download: true,
       header: true,
       complete: function(results) {
-          var trackCoords = results.data
-              .filter(r => r.lat && r.lon)
-              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
-
-          var pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
-
-          // Add Pintail points
-          trackCoords.forEach((c, idx) => {
-              L.circleMarker(c, {radius:4, color:'red'})
-                .addTo(map)
-                .bindPopup('<b>Pintail ' + idx + '</b><br>Waypoint info');
-          });
-
-          // Fit map bounds to show both tracks
-          map.fitBounds(trackCoords);
-      }
-    });
-
-    // --- Load annotated waypoints ---
-    Papa.parse(repoURL + "annotated_waypoints.csv", {
-      download: true,
-      header: true,
-      complete: function(results) {
-          results.data.forEach(wp => {
-              if (wp.lat && wp.lon) {
-                  L.marker([parseFloat(wp.lat), parseFloat(wp.lon)])
-                    .addTo(map)
-                    .bindPopup('<b>Waypoint: ' + wp.name + '</b>');
-              }
-          });
-      }
-    });
-  </script>
-</body>
-</html>
+          var trackCoords = r
