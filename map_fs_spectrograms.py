@@ -5,10 +5,10 @@ import numpy as np
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output
 
-# --- Configuration ---
+# Cable 
 dx = 3.19  # channel spacing in meters
 total_length = 1920
-image_dir = r"C:\Users\sjuber\results\decimator_2025-10-15_16.00.00_UTC_006816\decimator_2025-10-15_16.00.00_UTC_006816"
+image_dir = "images"
 
 # Loop definitions
 loop_starts = np.array([118, 147, 271, 400, 466, 510, 630, 1300, 1800])
@@ -39,7 +39,7 @@ while current_dist + dx <= total_length:
     x.append(current_dist)
     y.append(main_y)
 
-# --- Reverse direction ---
+
 x = total_length - np.array(x)   # flip along x-axis
 y = np.array(y)
 coords = np.linspace(0, total_length, len(x))
