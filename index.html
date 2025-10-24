@@ -3,105 +3,110 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Haro Strait Cable Map</title>
+<title>Haro Strait Cable Map with Spectrograms</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <style>
 body { margin:0; padding:0; font-family: Arial; }
-#map { height: 95vh; width: 100%; }
-.container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-.header { text-align: center; margin-bottom: 20px; }
+#map { height: 90vh; width: 100%; }
+#spec { height: 30vh; width: 100%; border-top: 1px solid #ccc; display:flex; justify-content:center; align-items:center; background:#f8f8f8; }
+#spec img { max-height:100%; max-width:100%; }
 </style>
 </head>
 <body>
 
-<div class="container">
-  <div class="header">
-    <h1>Haro Strait Cable Map</h1>
-    <p>Interactive cable layout with Pintail boat tracks and waypoints</p>
-  </div>
-  <div id="map"></div>
-</div>
+<div id="map"></div>
+<div id="spec">Click a cable point to view spectrogram</div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <script>
 const map = L.map('map').setView([48.558, -123.174], 15);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-// --- Cable layout from Python script ---
+// --- Load spectrograms ---
+let spectrogramIndex = [];
+fetch("spectrogram_index.txt")
+  .then(res => res.text())
+  .then(txt => {
+    spectrogramIndex = txt.trim().split("\n").map(line => {
+      let match = line.match(/_(\d+)m\.png$/);
+      let dist = match ? parseFloat(match[1]) : 0;
+      return { file: line.replace(/\\/g,'/'), dist: dist };
+    });
+    spectrogramIndex.sort((a,b)=>a.dist-b.dist);
+  });
+
+// --- Cable coordinates (simulated from Python script with bend) ---
 const dx = 3.19;
 const total_length = 1920;
 const loop_starts = [118, 147, 271, 400, 466, 510, 630, 1300, 1800];
-const loop_lengths = [30, 60, 60, 30, 30, 30, 30, 60, 60];
+const loop_lengths = [30,60,60,30,30,30,30,60,60];
 
 let x=[0], y=[0];
-let current_dist = 0;
-let main_y = 0;
-let loop_dir = 1;
-
+let current=0, mainY=0, loop_dir=1;
 for(let i=0;i<loop_starts.length;i++){
-  let next_loop_start = loop_starts[i];
-  let L = loop_lengths[i];
-  while(current_dist+dx < next_loop_start){
-    current_dist += dx; x.push(current_dist); y.push(main_y);
-  }
-  let r = L/(2*Math.PI);
-  let n = Math.floor(L/dx);
+  let nextStart=loop_starts[i], L=loop_lengths[i];
+  while(current+dx<nextStart){ current+=dx; x.push(current); y.push(mainY); }
+  let r=L/(2*Math.PI);
+  let n=Math.floor(L/dx);
   for(let j=0;j<n;j++){
-    let theta = 2*Math.PI*j/n;
-    x.push(current_dist + r*Math.cos(theta));
-    y.push(main_y + loop_dir*r*Math.sin(theta));
+    let theta=2*Math.PI*j/n;
+    x.push(current+r*Math.cos(theta));
+    y.push(mainY+loop_dir*r*Math.sin(theta));
   }
-  current_dist += L;
-  loop_dir *= -1;
+  current+=L;
+  loop_dir*=-1;
 }
-while(current_dist+dx <= total_length){ current_dist += dx; x.push(current_dist); y.push(main_y); }
+while(current+dx<=total_length){ current+=dx; x.push(current); y.push(mainY); }
 
-// Convert to lat/lon for map
-const baseLat = 48.558;
-const baseLon = -123.174;
-const latScale = 0.00005;
-const lonScale = 0.00005;
-const cableCoords = x.map((val,i)=>[baseLat + y[i]*latScale, baseLon + (total_length - val)*lonScale]);
+// --- Convert to realistic lat/lon for map ---
+const baseLat=48.558;
+const baseLon=-123.174;
+const latScale=0.00005;
+const lonScale=0.00005;
+const cableCoords = x.map((val,i)=>[baseLat+y[i]*latScale, baseLon+(total_length-val)*lonScale]);
 
+// --- Add cable line and interactive points ---
 const cableLine = L.polyline(cableCoords,{color:'blue'}).addTo(map);
-cableCoords.forEach((c,idx)=>{
-  L.circleMarker(c,{radius:3,color:'blue'}).addTo(map)
-    .bindPopup(`Cable Point ${idx}`);
+cableCoords.forEach((c,i)=>{
+  L.circleMarker(c,{radius:4,color:'blue'}).addTo(map)
+    .bindPopup(`Cable Point ${i}`)
+    .on('click',()=>{
+      if(spectrogramIndex.length===0){ alert("Spectrograms not loaded yet"); return; }
+      let dist=i*dx;
+      let nearest = spectrogramIndex.reduce((prev,curr)=>Math.abs(curr.dist-dist)<Math.abs(prev.dist-dist)?curr:prev);
+      let img = document.createElement('img');
+      img.src = 'images/' + nearest.file;
+      let specDiv = document.getElementById('spec');
+      specDiv.innerHTML=''; specDiv.appendChild(img);
+    });
 });
 
-// --- Load Pintail boat track from HTML file ---
-async function loadPintailTrack(){
-  const res = await fetch('pintail_boat_track.html');
-  const txt = await res.text();
-  const match = txt.match(/var\s+trackCoords\s*=\s*(\[[^\]]*\])/);
+// --- Load Pintail boat track ---
+fetch('pintail_boat_track.html').then(res=>res.text()).then(txt=>{
+  let match=txt.match(/var\s+trackCoords\s*=\s*(\[[^\]]*\])/);
   if(match){
-    const trackCoords = JSON.parse(match[1].replace(/'/g,'"'));
-    const line = L.polyline(trackCoords,{color:'red', dashArray:'5,5'}).addTo(map);
+    let trackCoords = JSON.parse(match[1].replace(/'/g,'"'));
+    let line=L.polyline(trackCoords,{color:'red',dashArray:'5,5'}).addTo(map);
     trackCoords.forEach((c,i)=>{
-      L.circleMarker(c,{radius:3,color:'red'})
-        .addTo(map)
+      L.circleMarker(c,{radius:3,color:'red'}).addTo(map)
         .bindPopup(`Pintail Track ${i}`);
     });
   }
-}
+});
 
-// --- Load Waypoints from HTML file ---
-async function loadWaypoints(){
-  const res = await fetch('pintail_waypoints_track.html');
-  const txt = await res.text();
-  const match = txt.match(/var\s+waypoints\s*=\s*(\[[^\]]*\])/);
+// --- Load Pintail waypoints ---
+fetch('pintail_waypoints_track.html').then(res=>res.text()).then(txt=>{
+  let match=txt.match(/var\s+waypoints\s*=\s*(\[[^\]]*\])/);
   if(match){
     const waypoints = JSON.parse(match[1].replace(/'/g,'"'));
     waypoints.forEach((wp,i)=>{
       L.marker(wp).addTo(map).bindPopup(`Waypoint ${i}`);
     });
   }
-}
+});
 
-loadPintailTrack();
-loadWaypoints();
-
-// Fit map to cable + tracks once cable is ready
+// --- Fit map ---
 map.fitBounds(cableLine.getBounds());
 </script>
 
