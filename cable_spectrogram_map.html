@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cable Spectrogram Map</title>
+<title>Pintail Cable Spectrogram Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
   body { margin:0; padding:0; font-family: Arial, sans-serif; }
@@ -38,11 +38,11 @@ fetch('spectrogram_index.txt')
 
 // --- Cable layout with gentle bend at ~600m ---
 var cable = [
-  [48.558194, -123.173432],
-  [48.556614, -123.17767],
-  [48.557296, -123.181350], // bend
-  [48.555251, -123.181608],
-  [48.547978, -123.183517]
+  [47.6000, -122.3000],
+  [47.6002, -122.2998],
+  [47.6005, -122.2995], // bend
+  [47.6010, -122.2990],
+  [47.6015, -122.2985]
 ];
 var cableLine = L.polyline(cable, {color:'blue', weight:3}).addTo(map);
 map.fitBounds(cableLine.getBounds());
@@ -60,33 +60,25 @@ cableLine.on('click', function(e){
   document.getElementById('spec-title').textContent = `Channel ${nearestIndex}`;
 });
 
-// --- Function to parse coordinates from HTML track files ---
-function parseTrackHTML(htmlText){
-  // Assumes coordinates are in L.polyline([...]) in the HTML files
-  var matches = htmlText.match(/\[\s*[\d\.\-]+,\s*[\d\.\-]+\s*\]/g);
-  return matches.map(function(s){
-    var nums = s.replace(/\[|\]/g,'').split(',').map(Number);
-    return [nums[0], nums[1]];
-  });
-}
-
-// --- Load Pintail boat tracks ---
+// --- Load Pintail boat track ---
 fetch('pintail_boat_track.html')
   .then(resp => resp.text())
   .then(html => {
-    var coords = parseTrackHTML(html);
-    if(coords.length) L.polyline(coords, {color:'green', weight:3}).addTo(map);
+    var matches = html.match(/\[\s*[\d\.\-]+,\s*[\d\.\-]+\s*\]/g);
+    if(matches){
+      var coords = matches.map(s=>s.replace(/\[|\]/g,'').split(',').map(Number));
+      L.polyline(coords, {color:'green', weight:3}).addTo(map);
+    }
   });
 
-// --- Load Pintail waypoints ---
-fetch('pintail_waypoints_track.html')
-  .then(resp => resp.text())
-  .then(html => {
-    var coords = parseTrackHTML(html);
-    coords.forEach(latlng => {
-      L.circleMarker(latlng, {color:'red', radius:4}).addTo(map);
-    });
-  });
+// --- Load waypoints as iframe overlay ---
+var waypointsLayer = L.layerGroup().addTo(map);
+var iframe = L.DomUtil.create('iframe','waypointsFrame');
+iframe.src = 'pintail_waypoints_track.html';
+iframe.style.width = '100%';
+iframe.style.height = '400px';
+iframe.style.border = 'none';
+document.body.appendChild(iframe);
 
 </script>
 </body>
