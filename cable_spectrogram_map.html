@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pintail Cable Map with Spectrograms</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<style>
+    body { margin:0; padding:0; font-family: Arial, sans-serif; }
+    #map { height: 95vh; width: 100%; }
+</style>
+</head>
+<body>
+<h2 style="text-align:center;">Pintail Cable Map with Spectrograms</h2>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+// --- Initialize map ---
+var map = L.map('map').setView([48.5, -123], 10); // adjust center
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+}).addTo(map);
+
+// --- Cable layout (converted from Python) ---
+var dx = 3.19; 
+var total_length = 1920;
+var loop_starts = [118, 147, 271, 400, 466, 510, 630, 1300, 1800];
+var loop_lengths = [30, 60, 60, 30, 30, 30, 30, 60, 60];
+
+var cableCoords = [];
+var current_dist = 0;
+var main_y = 0;
+var loop_dir = 1;
+
+function deg2rad(deg){ return deg*Math.PI/180; }
+
+// Create cable points in local coordinates (meters)
+var x=[], y=[];
+for(var i=0;i<loop_starts.length;i++){
+    var next_loop_start = loop_starts[i];
+    var L = loop_lengths[i];
+    while(current_dist+dx < next_loop_start){
+        current_dist+=dx;
+        x.push(current_dist);
+        y.push(main_y);
+    }
+    var r = L/(2*Math.PI);
+    var numPoints = Math.floor(L/dx);
+    for(var j=0;j<numPoints;j++){
+        var theta = 2*Math.PI*j/numPoints;
+        x.push(current_dist + r*Math.cos(theta));
+        y.push(main_y + loop_dir*r*Math.sin(theta));
+    }
+    current_dist+=L;
+    loop_dir*=-1;
+}
+while(current_dist+dx <= total_length){
+    current_dist+=dx;
+    x.push(current_dist);
+    y.push(main_y);
+}
+
+// Gentle bend at ~600 m (example: shift latitude slightly south)
+var cableLatLng = x.map((xi,idx)=>{
+    var lat = 48.5 - 0.00005*yi(y[idx]); // scale meters to lat
+    var lng = -123 + 0.00005*xi;         // scale meters to lng
+    return [lat,lng];
+});
+
+// Function to convert y (local) to meters south
+function yi(val){ return val; }
+
+// --- Draw cable ---
+var cableLine = L.polyline(cableLatLng, {color:'blue'}).addTo(map);
+cableLatLng.forEach((c,idx)=>{
+    L.circleMarker(c, {radius:4, color:'blue'})
+        .addTo(map)
+        .bindPopup('Cable Point '+idx)
+        .on('click',function(){
+            // Find nearest spectrogram
+            var nearestFile = 'images/spectrogram_ch'+idx+'m.png'; 
+            window.open(nearestFile,'_blank');
+        });
+});
+
+// --- Load Pintail Track ---
+fetch('pintail_boat_track.html')
+.then(r=>r.text())
+.then(html=>{
+    // extract coordinates from html <script> if they are in JS array like var trackCoords=[[lat,lng],...];
+    var match = html.match(/var trackCoords\s*=\s*(\[[\s\S]*?\]);/);
+    if(match){
+        var trackCoords = eval(match[1]);
+        var trackLine = L.polyline(trackCoords,{color:'red',dashArray:'5,5'}).addTo(map);
+        trackCoords.forEach((c,idx)=>{
+            L.circleMarker(c,{radius:3,color:'red'}).addTo(map)
+              .bindPopup('Pintail '+idx);
+        });
+        map.fitBounds(trackLine.getBounds());
+    }
+});
+
+// --- Load Pintail Waypoints ---
+fetch('pintail_waypoints_track.html')
+.then(r=>r.text())
+.then(html=>{
+    // extract coordinates from html <script> if they are in JS array like var waypoints=[[lat,lng],...];
+    var match = html.match(/var waypoints\s*=\s*(\[[\s\S]*?\]);/);
+    if(match){
+        var waypoints = eval(match[1]);
+        waypoints.forEach((c,idx)=>{
+            L.marker(c).addTo(map)
+                .bindPopup('Waypoint '+idx);
+        });
+    }
+});
+
+</script>
+</body>
+</html>
