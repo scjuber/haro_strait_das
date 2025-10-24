@@ -1,128 +1,155 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Interactive Cable + Pintail Map</title>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <style>
-    body { margin:0; padding:0; }
-    #map { height: 95vh; width: 100%; }
-    h2 { text-align:center; margin: 10px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vessel Tracking Maps</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+body {
+    font-family: Arial, sans-serif;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+}
+.container {
+    background: white;
+    border-radius: 15px;
+    padding: 40px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+.header { text-align:center; margin-bottom:40px; }
+.header h1 { color:#333; margin-bottom:10px; }
+.header p { color:#666; font-size:18px; }
+#map { height:70vh; width:100%; margin-bottom:30px; border:1px solid #ccc; border-radius:10px; }
+.map-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px,1fr)); gap:20px; margin-top:30px; }
+.map-card { background:#f8f9fa; border:2px solid #e9ecef; border-radius:10px; padding:25px; text-align:center; transition:all 0.3s ease; text-decoration:none; color:inherit; }
+.map-card:hover { transform:translateY(-5px); border-color:#667eea; box-shadow:0 5px 15px rgba(0,0,0,0.1); }
+.map-title { font-size:20px; font-weight:bold; margin-bottom:10px; color:#333; }
+.map-description { color:#666; font-size:14px; line-height:1.4; }
+.last-updated { text-align:center; margin-top:30px; color:#888; font-size:14px; }
+</style>
 </head>
 <body>
-  <h2>Interactive Cable + Pintail Map</h2>
-  <div id="map"></div>
+<div class="container">
+    <div class="header">
+        <h1>Vessel Tracking Maps</h1>
+        <p>Interactive Cable Spectrogram Viewer</p>
+    </div>
 
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <div id="map"></div>
 
-  <script>
-  // Initialize map
-  var map = L.map('map').setView([48.558, -123.174], 15);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    <div class="map-grid">
+        <a href="pintail_boat_track.html" class="map-card">
+            <div class="map-title">Pintail Track with GARMIN Waypoints</div>
+            <div class="map-description">Pintail cable track matched to waypoints marked with Garmin GPS handheld</div>
+        </a>
+        <a href="combined_boat_tracks.html" class="map-card">
+            <div class="map-title">All Boats Combined</div>
+            <div class="map-description">See all vessel tracks of interest</div>
+        </a>
+        <a href="dinghy_boat_track.html" class="map-card">
+            <div class="map-title">Dinghy Tracks</div>
+            <div class="map-description">Sound source and buoy search 10/15</div>
+        </a>
+    </div>
 
-  // --- Load spectrogram index ---
-  let spectrogramIndex = [];
-  fetch("spectrogram_index.txt")
-    .then(res => res.text())
-    .then(text => {
-        spectrogramIndex = text.trim().split("\n").map(line => {
-            let match = line.match(/_(\d+)m\.png$/);
-            let dist = match ? parseFloat(match[1]) : 0;
-            return { file: line.replace(/\\/g,'/'), dist: dist };
-        }).sort((a,b) => a.dist - b.dist);
+    <div class="last-updated">
+        Last updated: <span id="currentDate"></span>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+document.getElementById('currentDate').textContent = new Date().toLocaleDateString();
+
+// --- Initialize map ---
+var map = L.map('map').setView([48.558, -123.174], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(map);
+
+// --- Cable coordinates with loops ---
+const dx = 3.19;
+const total_length = 1920;
+const loop_starts = [118,147,271,400,466,510,630,1300,1800];
+const loop_lengths = [30,60,60,30,30,30,30,60,60];
+let x = [0], y = [0];
+let current_dist = 0, main_y=0, loop_dir=1;
+
+for(let i=0;i<loop_starts.length;i++){
+    let next_loop_start = loop_starts[i];
+    let L = loop_lengths[i];
+    while(current_dist + dx < next_loop_start){
+        current_dist += dx; x.push(current_dist); y.push(main_y);
+    }
+    let r = L / (2*Math.PI);
+    let npoints = Math.floor(L/dx);
+    for(let j=0;j<npoints;j++){
+        let theta = j*2*Math.PI/npoints;
+        x.push(current_dist + r*Math.cos(theta));
+        y.push(main_y + loop_dir*r*Math.sin(theta));
+    }
+    current_dist += L;
+    loop_dir *= -1;
+}
+while(current_dist + dx <= total_length){ current_dist += dx; x.push(current_dist); y.push(main_y); }
+
+// Flip along x-axis
+x = x.map(v => total_length - v);
+
+// Convert x,y to lat/lon (rough approximation)
+let startLat = 48.558, startLon=-123.174;
+let latlngs = x.map((v,i)=>[startLat + y[i]*0.00001, startLon + v*0.00001]);
+
+// --- Load spectrogram index ---
+let spectrogramIndex = [];
+fetch("spectrogram_index.txt").then(r=>r.text()).then(t=>{
+    spectrogramIndex = t.trim().split("\n").map(line=>{
+        let m = line.match(/_(\d+)m\.png$/);
+        let dist = m ? parseFloat(m[1]) : 0;
+        return {file: line.replace(/\\/g,'/'), dist: dist};
+    }).sort((a,b)=>a.dist-b.dist);
+});
+
+// --- Draw cable ---
+let cableLine = L.polyline(latlngs,{color:'blue'}).addTo(map);
+latlngs.forEach((c,idx)=>{
+    L.circleMarker(c,{radius:3,color:'blue'}).addTo(map)
+    .bindPopup('Cable Point '+idx)
+    .on('click', ()=>{
+        if(spectrogramIndex.length===0){alert("Spectrograms not loaded yet"); return;}
+        let nearest = spectrogramIndex.reduce((prev,curr)=>
+            Math.abs(curr.dist - idx*dx) < Math.abs(prev.dist - idx*dx) ? curr : prev
+        );
+        window.open('images/'+nearest.file,'_blank');
     });
+});
 
-  // --- Cable path from extracted Pintail waypoints ---
-  let cableCoords = [
-    [48.55811, -123.173839],
-    [48.557778, -123.174335],
-    [48.558004, -123.174153],
-    [48.557991, -123.174339]
-    // ... add all waypoints from pintail_waypoints_track.html
-  ];
+// --- Load Pintail track ---
+fetch("pintail_boat_track.html").then(r=>r.text()).then(txt=>{
+    let m = txt.match(/var trackCoords\s*=\s*(\[[^\]]*\])/);
+    if(m){
+        let trackCoords = JSON.parse(m[1].replace(/'/g,'"'));
+        let trackLine = L.polyline(trackCoords,{color:'red',dashArray:'5,5'}).addTo(map);
+        trackCoords.forEach((c,idx)=>{
+            L.circleMarker(c,{radius:3,color:'red'}).addTo(map).bindPopup('Pintail '+idx);
+        });
+        map.fitBounds(trackLine.getBounds());
+    }
+});
 
-  // Compute cumulative distance in meters
-  let cumulativeDist = [0];
-  for(let i=1;i<cableCoords.length;i++){
-      const prev = cableCoords[i-1];
-      const curr = cableCoords[i];
-      const dx = (curr[1]-prev[1])*111320*Math.cos(curr[0]*Math.PI/180);
-      const dy = (curr[0]-prev[0])*110540;
-      cumulativeDist.push(cumulativeDist[i-1] + Math.sqrt(dx*dx + dy*dy));
-  }
-
-  // Smooth southward bend starting at 600 m
-  const southStart = 600;
-  cableCoords = cableCoords.map((c,i)=>{
-      if(cumulativeDist[i] >= southStart){
-          // Shift south proportionally to distance beyond 600m
-          return [c[0] - 0.0005*(cumulativeDist[i]-southStart)/100, c[1]];
-      }
-      return c;
-  });
-
-  // Filter valid points
-  cableCoords = cableCoords.filter(c => !isNaN(c[0]) && !isNaN(c[1]));
-
-  // Draw cable polyline
-  if(cableCoords.length>0){
-      let cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
-      map.fitBounds(cableLine.getBounds());
-
-      // Add clickable cable markers for spectrograms
-      cableCoords.forEach((c, idx)=>{
-          L.circleMarker(c, {radius:3, color:'blue'})
-            .addTo(map)
-            .bindPopup('<b>Cable Point ' + idx + '</b>')
-            .on('click', function(){
-                if(spectrogramIndex.length===0){ alert("Spectrogram index not loaded yet"); return; }
-                let nearest = spectrogramIndex.reduce((prev,curr)=>
-                    Math.abs(curr.dist - cumulativeDist[idx]) < Math.abs(prev.dist - cumulativeDist[idx]) ? curr : prev
-                );
-                window.open('images/' + nearest.file, '_blank');
-            });
-      });
-  }
-
-  // --- Load Pintail track ---
-  Papa.parse("radar_pintail_track.csv", {
-      download: true,
-      header: true,
-      complete: function(results){
-          let trackCoords = results.data
-              .filter(r => r.lat && r.lon)
-              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
-          if(trackCoords.length>0){
-              let pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
-              trackCoords.forEach((c, idx)=>{
-                  L.circleMarker(c, {radius:3, color:'red'})
-                    .addTo(map)
-                    .bindPopup('<b>Pintail ' + idx + '</b>');
-              });
-          }
-      }
-  });
-
-  // --- Load annotated waypoints ---
-  Papa.parse("annotated_waypoints.csv", {
-      download: true,
-      header: true,
-      complete: function(results){
-          results.data.forEach(wp=>{
-              if(wp.Lat && wp.Long){
-                  let label = wp.Name ? wp.Name : "Waypoint " + wp.ypoint;
-                  L.marker([parseFloat(wp.Lat), parseFloat(wp.Long)])
-                    .addTo(map)
-                    .bindPopup('<b>'+label+'</b><br>' + (wp.voice_notes || ''));
-              }
-          });
-      }
-  });
-
-  </script>
+// --- Load annotated waypoints ---
+Papa.parse("annotated_waypoints.csv",{download:true,header:true,complete:function(results){
+    results.data.forEach(wp=>{
+        if(wp.Lat && wp.Long){
+            L.marker([parseFloat(wp.Lat),parseFloat(wp.Long)]).addTo(map)
+            .bindPopup('<b>'+ (wp.Name||"Waypoint "+wp.ypoint) +'</b><br>'+ (wp.voice_notes||''));
+        }
+    });
+}});
+</script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </body>
 </html>
