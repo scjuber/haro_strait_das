@@ -27,12 +27,12 @@
     var map = L.map('map').setView([47.6, -122.3], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-    // // --- Load spectrogram index ---
-    // let spectrogramIndex = [];
-    // fetch("spectrogram_index.json")
-    //   .then(res => res.json())
-    //   .then(data => { spectrogramIndex = data; })
-    //   .catch(err => console.error("Failed to load spectrogram_index.json", err));
+    // --- Load spectrogram index ---
+    let spectrogramIndex = [];
+    fetch("spectrogram_index.json")
+      .then(res => res.json())
+      .then(data => { spectrogramIndex = data; })
+      .catch(err => console.error("Failed to load spectrogram_index.json", err));
 
     // --- Load cable coordinates ---
     fetch("cable_coords.json")
