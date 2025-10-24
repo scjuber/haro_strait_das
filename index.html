@@ -21,7 +21,7 @@ body { margin:0; padding:0; background:#eef; font-family: Arial; }
 var map = L.map('map').setView([48.558, -123.174], 15);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-// --- Load Spectrogram Index ---
+// --- Spectrogram index ---
 let spectrogramIndex = [];
 fetch("spectrogram_index.txt").then(r=>r.text()).then(t=>{
     spectrogramIndex = t.trim().split("\n").map(line=>{
@@ -31,7 +31,7 @@ fetch("spectrogram_index.txt").then(r=>r.text()).then(t=>{
     }).sort((a,b)=>a.dist-b.dist);
 });
 
-// --- Create Cable Path with Loops ---
+// --- Cable path in water with gentle south bend at ~600 m ---
 function createCableCoords(){
     const dx = 3.19;
     const total_length = 1920;
@@ -66,15 +66,20 @@ function createCableCoords(){
         loop_dir *= -1;
     }
 
-    // remainder straight cable
     while(current_dist+dx <= total_length){
         current_dist += dx;
         x.push(current_dist);
         y.push(main_y);
     }
 
-    // flip x to match Python code
-    let coords = x.map((val,i)=>[48.558 + y[i]*0.00005, -123.174 + (total_length - val)*0.00005]);
+    // Convert to lat/lon over water
+    // Adjust scale factors to match water coordinates
+    let baseLat = 48.558;
+    let baseLon = -123.174;
+    let latScale = 0.00005; // adjust for water scale
+    let lonScale = 0.00005;
+
+    let coords = x.map((val,i)=>[baseLat + y[i]*latScale, baseLon + (total_length - val)*lonScale]);
     return coords;
 }
 
@@ -88,20 +93,21 @@ cableCoords.forEach((c,idx)=>{
       .bindPopup('Cable Point '+idx)
       .on('click', ()=>{
           if(spectrogramIndex.length>0){
-              const nearest = spectrogramIndex[Math.min(idx,spectrogramIndex.length-1)];
+              // Find nearest image
+              let nearest = spectrogramIndex.reduce((prev,curr)=>Math.abs(curr.dist-idx*3.19)<Math.abs(prev.dist-idx*3.19)?curr:prev);
               window.open('images/'+nearest.file,'_blank');
           }
       });
 });
 
-// --- Load Pintail Track from HTML ---
+// --- Load Pintail track from HTML ---
 async function loadPintailTrack(){
     const res = await fetch('pintail_boat_track.html');
     const txt = await res.text();
     const match = txt.match(/var\s+trackCoords\s*=\s*(\[[^\]]*\])/);
     if(match){
         const trackCoords = JSON.parse(match[1].replace(/'/g,'"'));
-        const boatLine = L.polyline(trackCoords,{color:'red', dashArray:'5,5'}).addTo(map);
+        let pintailLine = L.polyline(trackCoords,{color:'red', dashArray:'5,5'}).addTo(map);
         trackCoords.forEach((c,idx)=>{
             L.circleMarker(c,{radius:3,color:'red'})
               .addTo(map)
@@ -110,11 +116,27 @@ async function loadPintailTrack(){
     }
 }
 
-// --- Fit map bounds ---
-map.fitBounds(cableLine.getBounds());
+// --- Load Waypoints from HTML ---
+async function loadWaypoints(){
+    const res = await fetch('pintail_waypoints_track.html');
+    const txt = await res.text();
+    const match = txt.match(/var\s+waypoints\s*=\s*(\[[^\]]*\])/);
+    if(match){
+        const waypoints = JSON.parse(match[1].replace(/'/g,'"'));
+        waypoints.forEach((wp,idx)=>{
+            L.marker(wp,{icon:L.icon({iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',iconSize:[25,41],iconAnchor:[12,41]})})
+              .addTo(map)
+              .bindPopup('Waypoint '+idx);
+        });
+    }
+}
+
 loadPintailTrack();
+loadWaypoints();
+
+// --- Fit bounds to cable and tracks ---
+map.fitBounds(cableLine.getBounds());
 
 </script>
-
 </body>
 </html>
