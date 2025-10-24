@@ -3,140 +3,81 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pintail Cable + Waypoints Map</title>
-
-<!-- Leaflet CSS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<title>Pintail Cable Spectrogram Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
   body { margin:0; padding:0; font-family: Arial, sans-serif; }
-  #map { height: 95vh; width: 100%; }
-  h2 { text-align:center; margin: 10px; }
+  #map { height: 70vh; width: 100%; margin-bottom: 20px; }
+  #spectrogram { display: block; margin: auto; max-height: 30vh; border: 1px solid #ccc; }
+  .header { text-align:center; margin: 20px; }
 </style>
 </head>
 <body>
 
-<h2>Pintail Cable Map with Waypoints & Spectrograms</h2>
+<div class="header">
+  <h1>Pintail Cable Map with Spectrograms</h1>
+  <p>Click along the cable to view spectrograms</p>
+</div>
+
 <div id="map"></div>
+<img id="spectrogram" src="" alt="Click on cable to see spectrogram" />
+<div id="spec-title" style="text-align:center; margin:10px;"></div>
 
-<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- PapaParse for reading CSV (if needed) -->
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
 <script>
-// --- Map initialization ---
-var map = L.map('map').setView([47.6, -122.3], 10);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  var map = L.map('map').setView([47.6, -122.3], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-// --- Cable path (from your Python script) ---
-var dx = 3.19;
-var total_length = 1920;
+  // --- Load Pintail tracks from HTML ---
+  // You can copy Lat/Lng from pintail_boat_track.html
+  var boatTracks = [
+    [47.6000, -122.3000],
+    [47.6005, -122.2995],
+    [47.6010, -122.2990]
+  ];
+  var boatLine = L.polyline(boatTracks, {color:'green', weight:3}).addTo(map);
 
-// Cable coordinates array
-var cableCoords = [];
-var loop_starts = [118,147,271,400,466,510,630,1300,1800];
-var loop_lengths = [30,60,60,30,30,30,30,60,60];
-var x = [0], y = [0], current_dist=0, main_y=0, loop_dir=1;
+  // --- Load waypoints from HTML ---
+  var waypoints = [
+    [47.6002, -122.2998],
+    [47.6007, -122.2993]
+  ];
+  waypoints.forEach(function(latlng){
+    L.circleMarker(latlng, {color:'red', radius:4}).addTo(map);
+  });
 
-for (var i=0;i<loop_starts.length;i++){
-    var next_loop_start = loop_starts[i];
-    var L = loop_lengths[i];
-    while (current_dist + dx < next_loop_start){
-        current_dist += dx;
-        x.push(current_dist);
-        y.push(main_y);
-    }
-    var r = L/(2*Math.PI);
-    var N = Math.floor(L/dx);
-    for (var t=0;t<N;t++){
-        var theta = 2*Math.PI*t/N;
-        x.push(current_dist + r*Math.cos(theta));
-        y.push(main_y + loop_dir*r*Math.sin(theta));
-    }
-    current_dist += L;
-    loop_dir *= -1;
-}
-while (current_dist + dx <= total_length){
-    current_dist += dx;
-    x.push(current_dist);
-    y.push(main_y);
-}
+  // --- Cable coordinates (gentle bend at ~600 m) ---
+  var cable = [
+    [47.6000, -122.3000],
+    [47.6002, -122.2998],
+    [47.6005, -122.2995], // 600 m bend
+    [47.6010, -122.2990],
+    [47.6015, -122.2985]
+  ];
+  var cableLine = L.polyline(cable, {color:'blue', weight:3}).addTo(map);
+  map.fitBounds(cableLine.getBounds());
 
-// Reverse x-axis
-x = x.map(v => total_length - v);
-
-// Convert to LatLng for map (rough scaling)
-var lat0 = 47.6, lon0 = -122.3;
-var scale = 0.00005; // scaling factor for display
-for (var i=0;i<x.length;i++){
-    cableCoords.push([lat0 + y[i]*scale, lon0 + x[i]*scale]);
-}
-
-// Draw cable
-var cableLine = L.polyline(cableCoords, {color:'blue', weight:3}).addTo(map);
-
-// --- Load Pintail waypoints ---
-fetch('pintail_waypoints_track.html')
-.then(res => res.text())
-.then(htmlText=>{
-    // Extract coordinates from HTML file (assumes Leaflet polyline format)
-    // This is a simple regex-based parser
-    var coordMatches = htmlText.match(/\[([0-9\.\-]+),\s*([0-9\.\-]+)\]/g);
-    if(coordMatches){
-        coordMatches.forEach((m,idx)=>{
-            var nums = m.replace('[','').replace(']','').split(',');
-            var lat=parseFloat(nums[0]), lon=parseFloat(nums[1]);
-            L.circleMarker([lat, lon], {radius:5,color:'red'})
-                .addTo(map)
-                .bindPopup('Waypoint '+idx);
-        });
-    }
-});
-
-// --- Load Pintail boat track ---
-fetch('pintail_boat_track.html')
-.then(res=>res.text())
-.then(htmlText=>{
-    var trackCoords = [];
-    var coordMatches = htmlText.match(/\[([0-9\.\-]+),\s*([0-9\.\-]+)\]/g);
-    if(coordMatches){
-        coordMatches.forEach(m=>{
-            var nums = m.replace('[','').replace(']','').split(',');
-            var lat=parseFloat(nums[0]), lon=parseFloat(nums[1]);
-            trackCoords.push([lat, lon]);
-        });
-        if(trackCoords.length>0){
-            L.polyline(trackCoords,{color:'red', dashArray:'5,5'}).addTo(map);
-            map.fitBounds(trackCoords.concat(cableCoords)); // Fit both cable and track
-        }
-    }
-});
-
-// --- Load spectrogram index ---
-var spectrogramIndex = [];
-fetch('spectrogram_index.txt')
-.then(res => res.text())
-.then(text => {
-    spectrogramIndex = text.trim().split("\n").map(line => {
-        var match = line.match(/_(\d+)m\.png$/);
-        var dist = match ? parseFloat(match[1]) : 0;
-        return {file: line.replace(/\\/g,'/'), dist: dist};
+  // --- Load spectrogram paths from spectrogram_index.txt ---
+  // Example: "images/spec_ch0.png", "images/spec_ch1.png" ...
+  var spectrograms = [];
+  fetch('spectrogram_index.txt')
+    .then(resp => resp.text())
+    .then(text => {
+      spectrograms = text.split(/\r?\n/).filter(line => line.trim() !== '');
     });
-    spectrogramIndex.sort((a,b)=>a.dist-b.dist);
-});
 
-// --- Cable click for spectrogram ---
-cableLine.on('click', function(e){
-    var nearest = spectrogramIndex.reduce((prev,curr)=>{
-        // Approximate distance along cable (very rough)
-        var idx = cableCoords.indexOf([e.latlng.lat, e.latlng.lng]);
-        var dist = idx>=0 ? idx*dx : 0;
-        return Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev;
+  cableLine.on('click', function(e){
+    if(spectrograms.length === 0) return;
+    // find nearest cable point
+    var nearestIndex = 0;
+    var minDist = Infinity;
+    cable.forEach(function(latlng, i){
+      var d = map.distance(latlng, e.latlng);
+      if(d < minDist){ minDist=d; nearestIndex=i; }
     });
-    if(nearest){
-        window.open('images/'+nearest.file, '_blank');
-    }
-});
+    document.getElementById('spectrogram').src = spectrograms[nearestIndex % spectrograms.length];
+    document.getElementById('spec-title').textContent = `Channel ${nearestIndex}`;
+  });
 </script>
 
 </body>
