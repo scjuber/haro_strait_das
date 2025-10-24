@@ -108,7 +108,7 @@ while(current_dist + dx <= total_length){
   ys.push(main_y);
 }
 
-// reverse along x-axis as in your Python
+// reverse along x-axis
 xs = xs.map(v => total_length - v);
 
 // compute cumulative distance along the model (just the x along cable)
@@ -161,7 +161,7 @@ if(modelLenAlong < 1e-6){
   }
 }
 
-// We need a scale factor so that model distance between start and model bend maps to gps distance
+// Scale factor so model distance between start and model bend maps to gps distance
 const modelToGpsScale = (modelLenAlong === 0) ? 1.0 : (Math.hypot(gps_dx, gps_dy) / modelLenAlong);
 
 // Now compute lat/lon for every model point
@@ -194,7 +194,7 @@ fetch('spectrogram_index.txt')
   .then(t => {
     spectrogramList = t.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => {
       // try to extract distance number from filename, common patterns: _38095253680265m or _380_95m or _380.95m
-      // We will look for the last number group before 'm' in the filename.
+      // last number group before 'm' in the filename.
       const m = s.match(/([0-9_\.]+)m\.png$/);
       let d = null;
       if(m){
@@ -252,7 +252,7 @@ fetch('spectrogram_index.txt')
     }
   });
 
-// ---------- Overlay Pintail boat track (extract coords from your html file) ----------
+// ---------- Overlay Pintail boat track (extract coords from html file) ----------
 fetch('pintail_boat_track.html')
   .then(r => r.text())
   .then(txt => {
