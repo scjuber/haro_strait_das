@@ -5,7 +5,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body { margin:0; padding:0; }
@@ -17,27 +16,39 @@
   <h2>Interactive Cable + Pintail Map</h2>
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <!-- PapaParse for CSV -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-    // --- Initialize map ---
-    var map = L.map('map').setView([47.6, -122.3], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  var map = L.map('map').setView([47.6, -122.3], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-    // --- Load spectrogram index ---
-    let spectrogramIndex = [];
-    fetch("spectrogram_index.json")
-      .then(res => res.json())
-      .then(data => { spectrogramIndex = data; })
-      .catch(err => console.error("Failed to load spectrogram_index.json", err));
+  let spectrogramIndex = [];
 
-    // --- Load cable coordinates ---
-    fetch("cable_coords.json")
-      .then(res => res.json())
-      .then(cableCoords => {
+  // --- Load spectrogram list from text file ---
+  fetch("spectrogram_index.txt")
+    .then(res => res.text())
+    .then(text => {
+        spectrogramIndex = text.trim().split("\n").map(line => {
+            // Extract distance from filename (number before 'm.png')
+            let match = line.match(/_(\d+)m\.png$/);
+            let dist = match ? parseFloat(match[1]) : 0;
+            return { file: line.replace(/\\/g, '/'), dist: dist }; // replace backslash for browser
+        });
+
+        // Sort by distance just in case
+        spectrogramIndex.sort((a,b) => a.dist - b.dist);
+    });
+
+  // --- Load cable coordinates CSV ---
+  Papa.parse("cable_coords.csv", {
+      download: true,
+      header: true, // assumes columns: lat,lon
+      complete: function(results) {
+          let cableCoords = results.data
+              .filter(r => r.lat && r.lon)
+              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
+
           var cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
 
           cableCoords.forEach((c, idx) => {
@@ -45,30 +56,33 @@
                 .addTo(map)
                 .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
                 .on('click', function() {
-                    let dx = 3.19; // spacing in meters along cable
-                    let dist = idx * dx;
                     if (spectrogramIndex.length === 0) {
                         alert("Spectrogram index not loaded yet");
                         return;
                     }
-                    // Find nearest spectrogram by distance
-                    let nearest = spectrogramIndex.reduce((prev, curr) =>
+                    let dx = 3.19;
+                    let dist = idx * dx;
+
+                    // Find nearest spectrogram
+                    let nearest = spectrogramIndex.reduce((prev,curr) =>
                         Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
                     );
+
                     window.open('images/' + nearest.file, '_blank');
                 });
           });
-      })
-      .catch(err => console.error("Failed to load cable_coords.json", err));
+      }
+  });
 
-    // --- Load Pintail track ---
-    Papa.parse("radar_pintail_track.csv", {
+  // --- Load Pintail track ---
+  Papa.parse("radar_pintail_track.csv", {
       download: true,
       header: true,
       complete: function(results) {
-          var trackCoords = results.data
+          let trackCoords = results.data
               .filter(r => r.lat && r.lon)
               .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
+
           if (trackCoords.length > 0) {
               var pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
               trackCoords.forEach((c, idx) => {
@@ -78,12 +92,11 @@
               });
               map.fitBounds(trackCoords);
           }
-      },
-      error: function(err) { console.error("Failed to load radar_pintail_track.csv", err); }
-    });
+      }
+  });
 
-    // --- Load annotated waypoints ---
-    Papa.parse("annotated_waypoints.csv", {
+  // --- Load annotated waypoints ---
+  Papa.parse("annotated_waypoints.csv", {
       download: true,
       header: true,
       complete: function(results) {
@@ -91,15 +104,12 @@
               if (wp.lat && wp.lon) {
                   L.marker([parseFloat(wp.lat), parseFloat(wp.lon)])
                     .addTo(map)
-                    .bindPopup('<b>Waypoint: ' + wp.name + '</b>');
+                    .bindPopup('<b>Waypoint: ' + wp.ypoint + '</b><br>' + wp.voice_notes);
               }
           });
-      },
-      error: function(err) { console.error("Failed to load annotated_waypoints.csv", err); }
-    });
+      }
+  });
 
-    // --- Optional test marker ---
-    // L.marker([47.6, -122.3]).addTo(map).bindPopup("Test marker");
   </script>
 </body>
 </html>
