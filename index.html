@@ -20,8 +20,8 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <script>
-  // --- Initialize map ---
-  var map = L.map('map').setView([48.56, -123.17], 15); // center roughly on start
+  // Initialize map
+  var map = L.map('map').setView([48.558, -123.174], 15);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
   // --- Load spectrogram index ---
@@ -36,55 +36,82 @@
         }).sort((a,b) => a.dist - b.dist);
     });
 
-  // --- Load annotated waypoints (for cable path and waypoints) ---
+  // --- Cable path from extracted Pintail waypoints ---
+  let cableCoords = [
+    [48.55811, -123.173839],
+    [48.557778, -123.174335],
+    [48.558004, -123.174153],
+    [48.557991, -123.174339]
+    // ... add all waypoints from pintail_waypoints_track.html
+  ];
+
+  // Compute cumulative distance in meters
+  let cumulativeDist = [0];
+  for(let i=1;i<cableCoords.length;i++){
+      const prev = cableCoords[i-1];
+      const curr = cableCoords[i];
+      const dx = (curr[1]-prev[1])*111320*Math.cos(curr[0]*Math.PI/180);
+      const dy = (curr[0]-prev[0])*110540;
+      cumulativeDist.push(cumulativeDist[i-1] + Math.sqrt(dx*dx + dy*dy));
+  }
+
+  // Smooth southward bend starting at 600 m
+  const southStart = 600;
+  cableCoords = cableCoords.map((c,i)=>{
+      if(cumulativeDist[i] >= southStart){
+          // Shift south proportionally to distance beyond 600m
+          return [c[0] - 0.0005*(cumulativeDist[i]-southStart)/100, c[1]];
+      }
+      return c;
+  });
+
+  // Filter valid points
+  cableCoords = cableCoords.filter(c => !isNaN(c[0]) && !isNaN(c[1]));
+
+  // Draw cable polyline
+  if(cableCoords.length>0){
+      let cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
+      map.fitBounds(cableLine.getBounds());
+
+      // Add clickable cable markers for spectrograms
+      cableCoords.forEach((c, idx)=>{
+          L.circleMarker(c, {radius:3, color:'blue'})
+            .addTo(map)
+            .bindPopup('<b>Cable Point ' + idx + '</b>')
+            .on('click', function(){
+                if(spectrogramIndex.length===0){ alert("Spectrogram index not loaded yet"); return; }
+                let nearest = spectrogramIndex.reduce((prev,curr)=>
+                    Math.abs(curr.dist - cumulativeDist[idx]) < Math.abs(prev.dist - cumulativeDist[idx]) ? curr : prev
+                );
+                window.open('images/' + nearest.file, '_blank');
+            });
+      });
+  }
+
+  // --- Load Pintail track ---
+  Papa.parse("radar_pintail_track.csv", {
+      download: true,
+      header: true,
+      complete: function(results){
+          let trackCoords = results.data
+              .filter(r => r.lat && r.lon)
+              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
+          if(trackCoords.length>0){
+              let pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
+              trackCoords.forEach((c, idx)=>{
+                  L.circleMarker(c, {radius:3, color:'red'})
+                    .addTo(map)
+                    .bindPopup('<b>Pintail ' + idx + '</b>');
+              });
+          }
+      }
+  });
+
+  // --- Load annotated waypoints ---
   Papa.parse("annotated_waypoints.csv", {
       download: true,
       header: true,
       complete: function(results){
-          // Build cable path
-          let cableCoords = results.data
-              .filter(r => r.Lat && r.Long)
-              .map(r => [parseFloat(r.Lat), parseFloat(r.Long)]);
-
-          // --- Turn south at ~600 m cumulative distance ---
-          const cumulativeDist = [0];
-          for(let i=1; i<cableCoords.length; i++){
-              const prev = cableCoords[i-1];
-              const curr = cableCoords[i];
-              const dx = (curr[1]-prev[1])*111320*Math.cos(curr[0]*Math.PI/180);
-              const dy = (curr[0]-prev[0])*110540;
-              cumulativeDist.push(cumulativeDist[i-1] + Math.sqrt(dx*dx + dy*dy));
-          }
-
-          // Apply a southward bend starting around 600 m
-          const southStart = 600; // meters
-          cableCoords = cableCoords.map((c,i)=>{
-              if(cumulativeDist[i] >= southStart){
-                  return [c[0] - 0.001*(cumulativeDist[i]-southStart)/100, c[1]]; // shift south
-              } else return c;
-          });
-
-          // Draw cable
-          let cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
-
-          // Add cable markers for spectrograms
-          cableCoords.forEach((c, idx)=>{
-              L.circleMarker(c, {radius:3, color:'blue'})
-                .addTo(map)
-                .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
-                .on('click', function(){
-                    if(spectrogramIndex.length===0){ alert("Spectrogram index not loaded yet"); return; }
-                    let dist = cumulativeDist[idx];
-                    let nearest = spectrogramIndex.reduce((prev,curr)=>
-                        Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
-                    );
-                    window.open('images/' + nearest.file, '_blank');
-                });
-          });
-
-          map.fitBounds(cableLine.getBounds());
-
-          // --- Plot waypoints ---
           results.data.forEach(wp=>{
               if(wp.Lat && wp.Long){
                   let label = wp.Name ? wp.Name : "Waypoint " + wp.ypoint;
@@ -96,25 +123,6 @@
       }
   });
 
-  // --- Load Pintail track ---
-  Papa.parse("radar_pintail_track.csv", {
-      download: true,
-      header: true,
-      complete: function(results){
-          let trackCoords = results.data
-              .filter(r => r.lat && r.lon)
-              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
-
-          if(trackCoords.length>0){
-              let pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
-              trackCoords.forEach((c, idx)=>{
-                  L.circleMarker(c, {radius:3, color:'red'})
-                    .addTo(map)
-                    .bindPopup('<b>Pintail ' + idx + '</b>');
-              });
-          }
-      }
-  });
   </script>
 </body>
 </html>
