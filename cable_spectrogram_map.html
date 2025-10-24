@@ -19,7 +19,7 @@
 <body>
 
 <div class="header">
-  <h2>Pintail Cable Spectrogram Viewer</h2>
+  <h2>Spectrogram Viewer</h2>
   <div>Click a channel marker along the cable to view its spectrogram</div>
 </div>
 
@@ -43,6 +43,7 @@ const loopLengths = [30,60,60,30,30,30,30,60,60];
 // Use the GPS coordinates you provided for anchoring
 const gps_start = [48.558194, -123.173432];   // model origin (channel 0)
 const gps_bend  = [48.557296, -123.181350];   // target for model distance ~600m (bend)
+const gps_end = [48.547978, -123.183517];
 // NOTE: gps_bend must correspond roughly to a point near the model's ~600 m location
 
 // ---------- helper funcs ----------
