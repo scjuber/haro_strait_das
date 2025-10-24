@@ -21,10 +21,10 @@
 
   <script>
   // --- Initialize map ---
-  var map = L.map('map').setView([48.558, -123.174], 15); // starting GPS roughly at cable start
+  var map = L.map('map').setView([48.56, -123.17], 15); // center roughly on start
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-  // --- Spectrogram index from text file ---
+  // --- Load spectrogram index ---
   let spectrogramIndex = [];
   fetch("spectrogram_index.txt")
     .then(res => res.text())
@@ -36,87 +36,75 @@
         }).sort((a,b) => a.dist - b.dist);
     });
 
-  // --- Cable layout with loops (translated from Python) ---
-  const dx = 3.19;
-  const total_length = 1920;
-  const loop_starts = [118, 147, 271, 400, 466, 510, 630, 1300, 1800];
-  const loop_lengths = [30, 60, 60, 30, 30, 30, 30, 60, 60];
+  // --- Load annotated waypoints (for cable path and waypoints) ---
+  Papa.parse("annotated_waypoints.csv", {
+      download: true,
+      header: true,
+      complete: function(results){
+          // Build cable path
+          let cableCoords = results.data
+              .filter(r => r.Lat && r.Long)
+              .map(r => [parseFloat(r.Lat), parseFloat(r.Long)]);
 
-  let x = [0], y = [0];
-  let current_dist = 0;
-  let main_y = 0;
-  let loop_dir = 1;
+          // --- Turn south at ~600 m cumulative distance ---
+          const cumulativeDist = [0];
+          for(let i=1; i<cableCoords.length; i++){
+              const prev = cableCoords[i-1];
+              const curr = cableCoords[i];
+              const dx = (curr[1]-prev[1])*111320*Math.cos(curr[0]*Math.PI/180);
+              const dy = (curr[0]-prev[0])*110540;
+              cumulativeDist.push(cumulativeDist[i-1] + Math.sqrt(dx*dx + dy*dy));
+          }
 
-  for(let l=0; l<loop_starts.length; l++){
-      let next_loop_start = loop_starts[l];
-      let L_loop = loop_lengths[l];
-      while(current_dist + dx < next_loop_start){
-          current_dist += dx;
-          x.push(current_dist);
-          y.push(main_y);
+          // Apply a southward bend starting around 600 m
+          const southStart = 600; // meters
+          cableCoords = cableCoords.map((c,i)=>{
+              if(cumulativeDist[i] >= southStart){
+                  return [c[0] - 0.001*(cumulativeDist[i]-southStart)/100, c[1]]; // shift south
+              } else return c;
+          });
+
+          // Draw cable
+          let cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
+
+          // Add cable markers for spectrograms
+          cableCoords.forEach((c, idx)=>{
+              L.circleMarker(c, {radius:3, color:'blue'})
+                .addTo(map)
+                .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
+                .on('click', function(){
+                    if(spectrogramIndex.length===0){ alert("Spectrogram index not loaded yet"); return; }
+                    let dist = cumulativeDist[idx];
+                    let nearest = spectrogramIndex.reduce((prev,curr)=>
+                        Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
+                    );
+                    window.open('images/' + nearest.file, '_blank');
+                });
+          });
+
+          map.fitBounds(cableLine.getBounds());
+
+          // --- Plot waypoints ---
+          results.data.forEach(wp=>{
+              if(wp.Lat && wp.Long){
+                  let label = wp.Name ? wp.Name : "Waypoint " + wp.ypoint;
+                  L.marker([parseFloat(wp.Lat), parseFloat(wp.Long)])
+                    .addTo(map)
+                    .bindPopup('<b>'+label+'</b><br>' + (wp.voice_notes || ''));
+              }
+          });
       }
-      let r = L_loop / (2*Math.PI);
-      let n_pts = Math.floor(L_loop / dx);
-      for(let t=0; t<n_pts; t++){
-          let theta = 2*Math.PI*t/n_pts;
-          x.push(current_dist + r*Math.cos(theta));
-          y.push(main_y + loop_dir*r*Math.sin(theta));
-      }
-      current_dist += L_loop;
-      loop_dir *= -1;
-  }
-  while(current_dist + dx <= total_length){
-      current_dist += dx;
-      x.push(current_dist);
-      y.push(main_y);
-  }
-
-  // --- Reverse x like in Python ---
-  x = x.map(v => total_length - v);
-
-  // --- Convert x/y to lat/lon ---
-  const lat0 = 48.558; 
-  const lon0 = -123.174;
-  const lat0_rad = lat0 * Math.PI/180;
-  let cableCoords = x.map((xx,i)=>{
-      let lat = lat0 + y[i]/111320;
-      let lon = lon0 + xx/(111320*Math.cos(lat0_rad));
-      return [lat, lon];
   });
 
-  // --- Compute cumulative distance along cable ---
-  let cumulativeDist = [0];
-  for(let i=1; i<cableCoords.length; i++){
-      let prev = cableCoords[i-1], curr = cableCoords[i];
-      let dx_m = (curr[1]-prev[1])*111320*Math.cos(lat0_rad);
-      let dy_m = (curr[0]-prev[0])*110540;
-      cumulativeDist.push(cumulativeDist[i-1] + Math.sqrt(dx_m*dx_m + dy_m*dy_m));
-  }
-
-  // --- Draw cable and add clickable markers ---
-  let cableLine = L.polyline(cableCoords, {color:'blue'}).addTo(map);
-  cableCoords.forEach((c, idx)=>{
-      L.circleMarker(c, {radius:3, color:'blue'})
-        .addTo(map)
-        .bindPopup('<b>Cable Point ' + idx + '</b><br>Click to view spectrogram')
-        .on('click', function(){
-            if(spectrogramIndex.length===0){ alert("Spectrogram index not loaded yet"); return; }
-            let dist = cumulativeDist[idx];
-            let nearest = spectrogramIndex.reduce((prev,curr)=>
-                Math.abs(curr.dist - dist) < Math.abs(prev.dist - dist) ? curr : prev
-            );
-            window.open('images/' + nearest.file, '_blank');
-        });
-  });
-
-  // --- Load Pintail track CSV ---
+  // --- Load Pintail track ---
   Papa.parse("radar_pintail_track.csv", {
       download: true,
       header: true,
       complete: function(results){
           let trackCoords = results.data
-              .filter(r=>r.lat && r.lon)
-              .map(r=>[parseFloat(r.lat), parseFloat(r.lon)]);
+              .filter(r => r.lat && r.lon)
+              .map(r => [parseFloat(r.lat), parseFloat(r.lon)]);
+
           if(trackCoords.length>0){
               let pintailLine = L.polyline(trackCoords, {color:'red', dashArray:'5,5'}).addTo(map);
               trackCoords.forEach((c, idx)=>{
@@ -127,23 +115,6 @@
           }
       }
   });
-
-  // --- Load annotated waypoints CSV ---
-  Papa.parse("annotated_waypoints.csv", {
-      download: true,
-      header: true,
-      complete: function(results){
-          results.data.forEach(wp=>{
-              if(wp.Lat && wp.Long){
-                  let label = wp.Name ? wp.Name : "Waypoint";
-                  L.marker([parseFloat(wp.Lat), parseFloat(wp.Long)])
-                    .addTo(map)
-                    .bindPopup('<b>'+label+'</b><br>'+ (wp.voice_notes||''));
-              }
-          });
-      }
-  });
-
   </script>
 </body>
 </html>
