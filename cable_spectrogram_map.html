@@ -38,12 +38,11 @@ fetch('spectrogram_index.txt')
 
 // --- Cable layout with gentle bend at ~600m ---
 var cable = [
-  [47.6000, -122.3000],
-  [47.6002, -122.2998],
-  [47.6005, -122.2995], // bend
-  [47.6010, -122.2990],
-  [47.6015, -122.2985]
-];
+  [48.558194, -123.173432],
+  [48.556614, -123.17767],
+  [48.557296, -123.181350], // bend
+  [48.555251, -123.181608],
+  [48.547978, -123.183517]
 var cableLine = L.polyline(cable, {color:'blue', weight:3}).addTo(map);
 map.fitBounds(cableLine.getBounds());
 
