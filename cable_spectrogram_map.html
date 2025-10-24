@@ -6,11 +6,11 @@
 <title>Pintail Cable Spectrogram Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-  body { margin:0; padding:0; font-family: Arial, sans-serif; background:#f2f2f2; }
-  #map { height: 70vh; width: 100%; margin-bottom: 10px; }
-  #spectrogram { display: block; margin: auto; max-height: 25vh; border: 2px solid #ccc; border-radius: 8px; }
-  #spec-title { text-align:center; margin:10px; font-weight:bold; }
-  .header { text-align:center; margin: 20px; }
+  body { margin:0; padding:0; font-family: Arial, sans-serif; background:#f4f4f4; }
+  #map { height: 70vh; width: 100%; }
+  #spectrogram { display:block; margin:15px auto; max-height:25vh; border:2px solid #ccc; border-radius:8px; }
+  #spec-title { text-align:center; margin-bottom:15px; font-weight:bold; }
+  .header { text-align:center; margin:20px; }
   iframe { display:block; width:100%; height:400px; border:none; margin-top:20px; }
 </style>
 </head>
@@ -27,13 +27,28 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-var map = L.map('map').setView([48.556, -123.179], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 18,
-  attribution: ''
-}).addTo(map);
+// --- Parameters from your Python version ---
+const dx = 3.19;  // meters per channel
+const totalLength = 1920;  // meters
+const loopStarts = [118,147,271,400,466,510,630,1300,1800];
+const loopLengths = [30,60,60,30,30,30,30,60,60];
 
-// --- Load spectrogram paths ---
+// --- Initialize map ---
+const map = L.map('map').setView([48.5559, -123.179], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18}).addTo(map);
+
+// --- Cable coordinates (from you) ---
+const cable = [
+  [48.558194, -123.173432], // start
+  [48.556614, -123.177670],
+  [48.557296, -123.181350], // bend
+  [48.555251, -123.181608],
+  [48.547978, -123.183517]  // end
+];
+const cableLine = L.polyline(cable, {color:'blue', weight:4}).addTo(map);
+map.fitBounds(cableLine.getBounds());
+
+// --- Load spectrogram list ---
 let spectrograms = [];
 fetch('spectrogram_index.txt')
   .then(resp => resp.text())
@@ -41,34 +56,26 @@ fetch('spectrogram_index.txt')
     spectrograms = text.split(/\r?\n/).filter(line => line.trim() !== '');
   });
 
-// --- Cable coordinates ---
-const cable = [
-  [48.558194, -123.173432],
-  [48.556614, -123.177670],
-  [48.557296, -123.181350], // bend
-  [48.555251, -123.181608],
-  [48.547978, -123.183517]
-];
-const cableLine = L.polyline(cable, {color:'blue', weight:4}).addTo(map);
-map.fitBounds(cableLine.getBounds());
-
-// --- Click on cable to show nearest spectrogram ---
+// --- Handle clicks along cable ---
 cableLine.on('click', function(e) {
   if (spectrograms.length === 0) return;
-
-  let nearestIndex = 0;
+  // Find nearest point along cable
+  let nearest = cable[0];
   let minDist = Infinity;
-  cable.forEach((latlng, i) => {
-    const d = map.distance(latlng, e.latlng);
-    if (d < minDist) {
-      minDist = d;
-      nearestIndex = i;
-    }
-  });
+  let index = 0;
 
-  const imgPath = spectrograms[nearestIndex % spectrograms.length];
-  document.getElementById('spectrogram').src = imgPath;
-  document.getElementById('spec-title').textContent = `Channel ${nearestIndex} — ${imgPath}`;
+  for (let i = 0; i < cable.length; i++) {
+    const dist = map.distance(e.latlng, cable[i]);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = cable[i];
+      index = i;
+    }
+  }
+
+  const img = spectrograms[index % spectrograms.length];
+  document.getElementById('spectrogram').src = img;
+  document.getElementById('spec-title').textContent = `Segment ${index + 1} — ${img}`;
 });
 
 // --- Overlay Pintail boat track ---
@@ -78,11 +85,11 @@ fetch('pintail_boat_track.html')
     const matches = html.match(/\[\s*[\d\.\-]+,\s*[\d\.\-]+\s*\]/g);
     if (matches) {
       const coords = matches.map(s => s.replace(/\[|\]/g, '').split(',').map(Number));
-      L.polyline(coords, {color:'green', weight:3}).addTo(map);
+      L.polyline(coords, {color:'green', weight:3, opacity:0.6}).addTo(map);
     }
   });
 
-// --- Load Pintail waypoints below the map ---
+// --- Show waypoints below ---
 const iframe = document.createElement('iframe');
 iframe.src = 'pintail_waypoints_track.html';
 document.body.appendChild(iframe);
