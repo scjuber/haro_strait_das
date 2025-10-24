@@ -3,140 +3,107 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Haro Strait Cable + Pintail Map</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<title>Haro Strait Cable Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <style>
-body { margin:0; padding:0; background:#eef; font-family: Arial; }
+body { margin:0; padding:0; font-family: Arial; }
 #map { height: 95vh; width: 100%; }
+.container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+.header { text-align: center; margin-bottom: 20px; }
 </style>
 </head>
 <body>
 
-<div id="map"></div>
+<div class="container">
+  <div class="header">
+    <h1>Haro Strait Cable Map</h1>
+    <p>Interactive cable layout with Pintail boat tracks and waypoints</p>
+  </div>
+  <div id="map"></div>
+</div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <script>
-// --- Initialize Map ---
-var map = L.map('map').setView([48.558, -123.174], 15);
+const map = L.map('map').setView([48.558, -123.174], 15);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-// --- Spectrogram index ---
-let spectrogramIndex = [];
-fetch("spectrogram_index.txt").then(r=>r.text()).then(t=>{
-    spectrogramIndex = t.trim().split("\n").map(line=>{
-        let m = line.match(/_(\d+)m\.png$/);
-        let dist = m ? parseFloat(m[1]) : 0;
-        return {file: line.replace(/\\/g,'/'), dist: dist};
-    }).sort((a,b)=>a.dist-b.dist);
-});
+// --- Cable layout from Python script ---
+const dx = 3.19;
+const total_length = 1920;
+const loop_starts = [118, 147, 271, 400, 466, 510, 630, 1300, 1800];
+const loop_lengths = [30, 60, 60, 30, 30, 30, 30, 60, 60];
 
-// --- Cable path in water with gentle south bend at ~600 m ---
-function createCableCoords(){
-    const dx = 3.19;
-    const total_length = 1920;
-    const loop_starts = [118, 147, 271, 400, 466, 510, 630, 1300, 1800];
-    const loop_lengths = [30, 60, 60, 30, 30, 30, 30, 60, 60];
+let x=[0], y=[0];
+let current_dist = 0;
+let main_y = 0;
+let loop_dir = 1;
 
-    let x=[0], y=[0];
-    let current_dist = 0;
-    let main_y = 0;
-    let loop_dir = 1;
-
-    for(let i=0;i<loop_starts.length;i++){
-        let next_loop_start = loop_starts[i];
-        let L = loop_lengths[i];
-
-        while(current_dist+dx < next_loop_start){
-            current_dist += dx;
-            x.push(current_dist);
-            y.push(main_y);
-        }
-
-        // loop as circular bend
-        let r = L/(2*Math.PI);
-        let n = Math.floor(L/dx);
-        for(let j=0;j<n;j++){
-            let theta = 2*Math.PI*j/n;
-            x.push(current_dist + r*Math.cos(theta));
-            y.push(main_y + loop_dir*r*Math.sin(theta));
-        }
-
-        current_dist += L;
-        loop_dir *= -1;
-    }
-
-    while(current_dist+dx <= total_length){
-        current_dist += dx;
-        x.push(current_dist);
-        y.push(main_y);
-    }
-
-    // Convert to lat/lon over water
-    // Adjust scale factors to match water coordinates
-    let baseLat = 48.558;
-    let baseLon = -123.174;
-    let latScale = 0.00005; // adjust for water scale
-    let lonScale = 0.00005;
-
-    let coords = x.map((val,i)=>[baseLat + y[i]*latScale, baseLon + (total_length - val)*lonScale]);
-    return coords;
+for(let i=0;i<loop_starts.length;i++){
+  let next_loop_start = loop_starts[i];
+  let L = loop_lengths[i];
+  while(current_dist+dx < next_loop_start){
+    current_dist += dx; x.push(current_dist); y.push(main_y);
+  }
+  let r = L/(2*Math.PI);
+  let n = Math.floor(L/dx);
+  for(let j=0;j<n;j++){
+    let theta = 2*Math.PI*j/n;
+    x.push(current_dist + r*Math.cos(theta));
+    y.push(main_y + loop_dir*r*Math.sin(theta));
+  }
+  current_dist += L;
+  loop_dir *= -1;
 }
+while(current_dist+dx <= total_length){ current_dist += dx; x.push(current_dist); y.push(main_y); }
 
-// --- Draw Cable ---
-let cableCoords = createCableCoords();
-let cableLine = L.polyline(cableCoords,{color:'blue'}).addTo(map);
+// Convert to lat/lon for map
+const baseLat = 48.558;
+const baseLon = -123.174;
+const latScale = 0.00005;
+const lonScale = 0.00005;
+const cableCoords = x.map((val,i)=>[baseLat + y[i]*latScale, baseLon + (total_length - val)*lonScale]);
 
+const cableLine = L.polyline(cableCoords,{color:'blue'}).addTo(map);
 cableCoords.forEach((c,idx)=>{
-    L.circleMarker(c,{radius:3,color:'blue'})
-      .addTo(map)
-      .bindPopup('Cable Point '+idx)
-      .on('click', ()=>{
-          if(spectrogramIndex.length>0){
-              // Find nearest image
-              let nearest = spectrogramIndex.reduce((prev,curr)=>Math.abs(curr.dist-idx*3.19)<Math.abs(prev.dist-idx*3.19)?curr:prev);
-              window.open('images/'+nearest.file,'_blank');
-          }
-      });
+  L.circleMarker(c,{radius:3,color:'blue'}).addTo(map)
+    .bindPopup(`Cable Point ${idx}`);
 });
 
-// --- Load Pintail track from HTML ---
+// --- Load Pintail boat track from HTML file ---
 async function loadPintailTrack(){
-    const res = await fetch('pintail_boat_track.html');
-    const txt = await res.text();
-    const match = txt.match(/var\s+trackCoords\s*=\s*(\[[^\]]*\])/);
-    if(match){
-        const trackCoords = JSON.parse(match[1].replace(/'/g,'"'));
-        let pintailLine = L.polyline(trackCoords,{color:'red', dashArray:'5,5'}).addTo(map);
-        trackCoords.forEach((c,idx)=>{
-            L.circleMarker(c,{radius:3,color:'red'})
-              .addTo(map)
-              .bindPopup('Pintail Track '+idx);
-        });
-    }
+  const res = await fetch('pintail_boat_track.html');
+  const txt = await res.text();
+  const match = txt.match(/var\s+trackCoords\s*=\s*(\[[^\]]*\])/);
+  if(match){
+    const trackCoords = JSON.parse(match[1].replace(/'/g,'"'));
+    const line = L.polyline(trackCoords,{color:'red', dashArray:'5,5'}).addTo(map);
+    trackCoords.forEach((c,i)=>{
+      L.circleMarker(c,{radius:3,color:'red'})
+        .addTo(map)
+        .bindPopup(`Pintail Track ${i}`);
+    });
+  }
 }
 
-// --- Load Waypoints from HTML ---
+// --- Load Waypoints from HTML file ---
 async function loadWaypoints(){
-    const res = await fetch('pintail_waypoints_track.html');
-    const txt = await res.text();
-    const match = txt.match(/var\s+waypoints\s*=\s*(\[[^\]]*\])/);
-    if(match){
-        const waypoints = JSON.parse(match[1].replace(/'/g,'"'));
-        waypoints.forEach((wp,idx)=>{
-            L.marker(wp,{icon:L.icon({iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',iconSize:[25,41],iconAnchor:[12,41]})})
-              .addTo(map)
-              .bindPopup('Waypoint '+idx);
-        });
-    }
+  const res = await fetch('pintail_waypoints_track.html');
+  const txt = await res.text();
+  const match = txt.match(/var\s+waypoints\s*=\s*(\[[^\]]*\])/);
+  if(match){
+    const waypoints = JSON.parse(match[1].replace(/'/g,'"'));
+    waypoints.forEach((wp,i)=>{
+      L.marker(wp).addTo(map).bindPopup(`Waypoint ${i}`);
+    });
+  }
 }
 
 loadPintailTrack();
 loadWaypoints();
 
-// --- Fit bounds to cable and tracks ---
+// Fit map to cable + tracks once cable is ready
 map.fitBounds(cableLine.getBounds());
-
 </script>
+
 </body>
 </html>
