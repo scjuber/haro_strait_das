@@ -1,99 +1,277 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Pintail Cable Spectrogram Map</title>
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-  body { margin:0; padding:0; font-family: Arial, sans-serif; background:#f4f4f4; }
-  #map { height: 70vh; width: 100%; }
-  #spectrogram { display:block; margin:15px auto; max-height:25vh; border:2px solid #ccc; border-radius:8px; }
-  #spec-title { text-align:center; margin-bottom:15px; font-weight:bold; }
-  .header { text-align:center; margin:20px; }
-  iframe { display:block; width:100%; height:400px; border:none; margin-top:20px; }
+  body { margin:0; font-family: Arial, Helvetica, sans-serif; background:#f6f7fb; }
+  .header { text-align:center; padding:18px 12px; }
+  #map { height: 68vh; width:100%; }
+  #spec-box { max-width:1000px; margin:12px auto; text-align:center; }
+  #spec-img { max-height:26vh; max-width:100%; border:2px solid #ccc; border-radius:6px; }
+  #spec-title { margin-top:8px; font-weight:600; }
+  iframe { width:100%; height:380px; border:0; margin-top:14px; }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>Pintail Cable Spectrogram Viewer</h1>
-  <p>Click along the cable to view spectrograms</p>
+  <h2>Pintail Cable Spectrogram Viewer</h2>
+  <div>Click a channel marker along the cable to view its spectrogram</div>
 </div>
 
 <div id="map"></div>
-<img id="spectrogram" src="" alt="Click on cable to see spectrogram" />
-<div id="spec-title"></div>
 
+<div id="spec-box">
+  <img id="spec-img" src="" alt="Click a channel to show spectrogram">
+  <div id="spec-title"></div>
+</div>
+
+<!-- Leaflet -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
-// --- Parameters from your Python version ---
-const dx = 3.19;  // meters per channel
-const totalLength = 1920;  // meters
+// ---------- CONFIG (from you) ----------
+const dx = 3.19;                    // channel spacing (m)
+const total_length = 1920;          // total cable length (m)
 const loopStarts = [118,147,271,400,466,510,630,1300,1800];
 const loopLengths = [30,60,60,30,30,30,30,60,60];
 
-// --- Initialize map ---
-const map = L.map('map').setView([48.5559, -123.179], 14);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18}).addTo(map);
+// Use the GPS coordinates you provided for anchoring
+const gps_start = [48.558194, -123.173432];   // model origin (channel 0)
+const gps_bend  = [48.557296, -123.181350];   // target for model distance ~600m (bend)
+// NOTE: gps_bend must correspond roughly to a point near the model's ~600 m location
 
-// --- Cable coordinates (from you) ---
-const cable = [
-  [48.558194, -123.173432], // start
-  [48.556614, -123.177670],
-  [48.557296, -123.181350], // bend
-  [48.555251, -123.181608],
-  [48.547978, -123.183517]  // end
-];
-const cableLine = L.polyline(cable, {color:'blue', weight:4}).addTo(map);
-map.fitBounds(cableLine.getBounds());
+// ---------- helper funcs ----------
+function linspace(a,b,n){
+  if(n<=1) return [a];
+  const out = [];
+  for(let i=0;i<n;i++) out.push(a + (b-a)*(i/(n-1)));
+  return out;
+}
+function deg2rad(d){ return d*Math.PI/180; }
+function rad2deg(r){ return r*180/Math.PI; }
 
-// --- Load spectrogram list ---
-let spectrograms = [];
-fetch('spectrogram_index.txt')
-  .then(resp => resp.text())
-  .then(text => {
-    spectrograms = text.split(/\r?\n/).filter(line => line.trim() !== '');
-  });
+// approximate meters <-> degrees conversions at lat0
+const lat0 = gps_start[0]; // reference latitude
+const metersPerDegLat = 111320; // approx
+const metersPerDegLon = 111320 * Math.cos(deg2rad(lat0));
 
-// --- Handle clicks along cable ---
-cableLine.on('click', function(e) {
-  if (spectrograms.length === 0) return;
-  // Find nearest point along cable
-  let nearest = cable[0];
-  let minDist = Infinity;
-  let index = 0;
+// convert lat/lon delta to meters (east,north)
+function latlonToMetersDelta(lat1,lon1,lat2,lon2){
+  const dy = (lat2 - lat1) * metersPerDegLat; // north meters
+  const dx = (lon2 - lon1) * metersPerDegLon; // east meters
+  return [dx, dy];
+}
+// convert meters delta to lat/lon
+function metersDeltaToLatLon(latRef, lonRef, dx, dy){
+  const lat = latRef + dy / metersPerDegLat;
+  const lon = lonRef + dx / metersPerDegLon;
+  return [lat, lon];
+}
 
-  for (let i = 0; i < cable.length; i++) {
-    const dist = map.distance(e.latlng, cable[i]);
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = cable[i];
-      index = i;
-    }
+// ---------- Build synthetic cable (model coordinates in meters) ----------
+let xs = [0], ys = [0];
+let current_dist = 0;
+let main_y = 0;
+let loop_dir = 1;
+
+for(let idx=0; idx<loopStarts.length; idx++){
+  const nextStart = loopStarts[idx];
+  const L = loopLengths[idx];
+
+  while(current_dist + dx < nextStart){
+    current_dist += dx;
+    xs.push(current_dist);
+    ys.push(main_y);
   }
 
-  const img = spectrograms[index % spectrograms.length];
-  document.getElementById('spectrogram').src = img;
-  document.getElementById('spec-title').textContent = `Segment ${index + 1} — ${img}`;
+  const r = L / (2 * Math.PI);
+  const nPts = Math.max(8, Math.round(L / dx));
+  const thetas = linspace(0, 2*Math.PI, nPts);
+  for(const th of thetas){
+    xs.push(current_dist + r * Math.cos(th));
+    ys.push(main_y + loop_dir * r * Math.sin(th));
+  }
+  current_dist += L;
+  loop_dir *= -1;
+}
+
+// finish straight section
+while(current_dist + dx <= total_length){
+  current_dist += dx;
+  xs.push(current_dist);
+  ys.push(main_y);
+}
+
+// reverse along x-axis as in your Python
+xs = xs.map(v => total_length - v);
+
+// compute cumulative distance along the model (just the x along cable)
+const cumDist = xs.map((v,i)=> v); // xs already stores distance along cable in meters
+
+// ---------- Map model to lat/lon using gps_start and gps_bend ----------
+/*
+  Strategy:
+  - Choose model reference: model_start (xs[0],ys[0]) -> gps_start
+  - Find model index near target distance for bend (600 m). Use desiredDistance = 600
+  - Find model point (xb,yb) at index ibend where cumDist >= desiredDistance
+  - Compute vector from gps_start to gps_bend in meters (dx_gps, dy_gps)
+  - Define unit vector u_x = normalized (dx_gps, dy_gps) (this will be the model x-axis)
+  - Define perpendicular unit vector u_y = rotate90(u_x)
+  - For each model point (x_m, y_m): compute offset_m = (x_m - xs[0]) * u_x + y_m * u_y  (meters east/north)
+  - Convert offset_m to lat/lon with meters-to-degrees at lat0
+*/
+
+const desiredBendMeters = 600; // where you want the bend mapping (approx)
+let ibend = cumDist.findIndex(d => d >= desiredBendMeters);
+if(ibend === -1) ibend = Math.floor(cumDist.length/2);
+
+// model bend point (meters)
+const xb = xs[ibend], yb = ys[ibend];
+
+// GPS vector in meters from gps_start -> gps_bend
+const [gps_dx, gps_dy] = latlonToMetersDelta(gps_start[0], gps_start[1], gps_bend[0], gps_bend[1]); // east,north
+
+// model delta (meters) from model start to model bend (projected along x and y)
+const model_dx = xb - xs[0];
+const model_dy = yb - ys[0];
+
+// build unit vectors
+// Use model_dx only to set magnitude along u_x; we assume main axis aligns to vector from start->bend
+let ux = [0,0], uy = [0,0];
+const modelLenAlong = Math.hypot(model_dx, model_dy);
+if(modelLenAlong < 1e-6){
+  // fallback: align x along east
+  ux = [1,0];
+  uy = [0,1];
+} else {
+  // align u_x with GPS vector direction, but scale later
+  const magGps = Math.hypot(gps_dx, gps_dy);
+  if(magGps < 1e-6){
+    ux = [1,0]; uy = [0,1];
+  } else {
+    ux = [gps_dx/magGps, gps_dy/magGps]; // unit vector east,north
+    // perpendicular to the right-hand side (rotate 90deg)
+    uy = [-ux[1], ux[0]];
+  }
+}
+
+// We need a scale factor so that model distance between start and model bend maps to gps distance
+const modelToGpsScale = (modelLenAlong === 0) ? 1.0 : (Math.hypot(gps_dx, gps_dy) / modelLenAlong);
+
+// Now compute lat/lon for every model point
+const cableLatLon = xs.map((xm, i) => {
+  const ym = ys[i];
+  // position relative to model origin (meters)
+  const relX = (xm - xs[0]) * modelToGpsScale;
+  const relY = ym * modelToGpsScale;
+  // convert to east/north meters via basis vectors
+  const east_m = ux[0]*relX + uy[0]*relY;
+  const north_m = ux[1]*relX + uy[1]*relY;
+  // convert to lat/lon
+  return metersDeltaToLatLon(gps_start[0], gps_start[1], east_m, north_m);
 });
 
-// --- Overlay Pintail boat track ---
-fetch('pintail_boat_track.html')
-  .then(resp => resp.text())
-  .then(html => {
-    const matches = html.match(/\[\s*[\d\.\-]+,\s*[\d\.\-]+\s*\]/g);
-    if (matches) {
-      const coords = matches.map(s => s.replace(/\[|\]/g, '').split(',').map(Number));
-      L.polyline(coords, {color:'green', weight:3, opacity:0.6}).addTo(map);
+// ---------- Build map and layers ----------
+const map = L.map('map').setView(gps_start, 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(map);
+
+// draw cable line
+const cableLine = L.polyline(cableLatLon, {color:'blue', weight:3}).addTo(map);
+map.fitBounds(cableLine.getBounds());
+
+// place a marker for every channel and attach spectrogram click
+let channelMarkers = [];
+// load spectrograms and parse numeric distances from filenames (if present)
+let spectrogramList = []; // array of {file, dist}
+fetch('spectrogram_index.txt')
+  .then(r => r.text())
+  .then(t => {
+    spectrogramList = t.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => {
+      // try to extract distance number from filename, common patterns: _38095253680265m or _380_95m or _380.95m
+      // We will look for the last number group before 'm' in the filename.
+      const m = s.match(/([0-9_\.]+)m\.png$/);
+      let d = null;
+      if(m){
+        d = parseFloat(m[1].replace(/_/g,'.'));
+      }
+      return {file: s, dist: d};
+    });
+    // sort by dist if distances present
+    spectrogramList.sort((a,b) => {
+      if(a.dist==null && b.dist==null) return 0;
+      if(a.dist==null) return 1;
+      if(b.dist==null) return -1;
+      return a.dist - b.dist;
+    });
+
+    // compute cumulative distance array along cable (model)
+    // cumDist already equals xs (distance along cable in meters)
+    // For each channel (i), find nearest spectrogram by distance if spectrogram dist known,
+    // otherwise fallback to index mapping.
+    const specDists = spectrogramList.map(s => s.dist);
+
+    // place markers
+    for(let i=0;i<cableLatLon.length;i++){
+      const latlng = cableLatLon[i];
+      // create marker
+      const m = L.circleMarker(latlng, {radius:3, color:'blue', fill:true, fillOpacity:0.9}).addTo(map);
+      // find nearest spectrogram by distance
+      let chosen = null;
+      if(specDists.length && specDists[0] != null){
+        // cumDist[i] is the along-cable distance in meters (xs[i])
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        for(let k=0;k<specDists.length;k++){
+          const sd = specDists[k];
+          if(sd==null) continue;
+          const diff = Math.abs(sd - xs[i]);
+          if(diff < bestDiff){ bestDiff = diff; bestIdx = k; }
+        }
+        chosen = spectrogramList[bestIdx];
+      } else {
+        // fallback: map by proportional index
+        const idx = Math.round((i / (cableLatLon.length-1)) * (spectrogramList.length-1));
+        chosen = spectrogramList[Math.max(0, Math.min(spectrogramList.length-1, idx))];
+      }
+
+      m.on('click', (ev) => {
+        if(!chosen) return;
+        // display spectrogram
+        const img = document.getElementById('spec-img');
+        img.src = chosen.file;
+        const title = document.getElementById('spec-title');
+        title.textContent = `Channel ${i} — ${ (chosen.dist!=null) ? (chosen.dist.toFixed(2)+' m') : chosen.file }`;
+      });
+      channelMarkers.push(m);
     }
   });
 
-// --- Show waypoints below ---
+// ---------- Overlay Pintail boat track (extract coords from your html file) ----------
+fetch('pintail_boat_track.html')
+  .then(r => r.text())
+  .then(txt => {
+    // find arrays of coordinates like [lat, lon]
+    const matches = txt.match(/\[\s*-?\d+\.\d+,\s*-?\d+\.\d+\s*\]/g);
+    if(matches && matches.length){
+      const coords = matches.map(s => s.replace(/\[|\]/g,'').split(',').map(Number));
+      L.polyline(coords, {color:'green', weight:3, opacity:0.7}).addTo(map);
+    }
+  });
+
+// ---------- embed waypoints html below (optional) ----------
 const iframe = document.createElement('iframe');
 iframe.src = 'pintail_waypoints_track.html';
+iframe.style.width = '100%';
+iframe.style.height = '360px';
+iframe.style.border = 'none';
+iframe.style.marginTop = '12px';
 document.body.appendChild(iframe);
-</script>
 
+</script>
 </body>
 </html>
