@@ -1,114 +1,115 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Haro Strait Cable Map with Spectrograms</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<style>
-body { margin:0; padding:0; font-family: Arial; }
-#map { height: 90vh; width: 100%; }
-#spec { height: 30vh; width: 100%; border-top: 1px solid #ccc; display:flex; justify-content:center; align-items:center; background:#f8f8f8; }
-#spec img { max-height:100%; max-width:100%; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pintail Cable + Tracks</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .header p {
+            color: #666;
+            font-size: 18px;
+        }
+        .map-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .map-card {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+        .map-card:hover {
+            transform: translateY(-5px);
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .map-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        .map-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .map-description {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .last-updated {
+            text-align: center;
+            margin-top: 30px;
+            color: #888;
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <div class="header">
+            <h1>Pintail Cable & Tracks</h1>
+            <p>Interactive view of the Pintail deployment cable and tracks</p>
+        </div>
+        
+        <div class="map-grid">
+            <a href="pintail_boat_track.html" class="map-card">
+                <div class="map-icon">🛥️</div>
+                <div class="map-title">Pintail Boat Tracks</div>
+                <div class="map-description">All Pintail tracks from 10/10 cable deployment</div>
+            </a>
+            
+            <a href="pintail_waypoints_track.html" class="map-card">
+                <div class="map-icon">📍</div>
+                <div class="map-title">Pintail Waypoints</div>
+                <div class="map-description">Waypoints from Garmin GPS handhelds along the cable path</div>
+            </a>
+            
+            <a href="cable_spectrogram_map.html" class="map-card">
+                <div class="map-icon">🔌</div>
+                <div class="map-title">Cable Spectrogram Map</div>
+                <div class="map-description">Interactive cable layout with loops, gentle bend at 600 m, and spectrogram images</div>
+            </a>
+        </div>
+        
+        <div class="last-updated">
+            Last updated: <span id="currentDate"></span>
+        </div>
+    </div>
 
-<div id="map"></div>
-<div id="spec">Click a cable point to view spectrogram</div>
-
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<script>
-const map = L.map('map').setView([48.558, -123.174], 15);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
-
-// --- Load spectrograms ---
-let spectrogramIndex = [];
-fetch("spectrogram_index.txt")
-  .then(res => res.text())
-  .then(txt => {
-    spectrogramIndex = txt.trim().split("\n").map(line => {
-      let match = line.match(/_(\d+)m\.png$/);
-      let dist = match ? parseFloat(match[1]) : 0;
-      return { file: line.replace(/\\/g,'/'), dist: dist };
-    });
-    spectrogramIndex.sort((a,b)=>a.dist-b.dist);
-  });
-
-// --- Cable coordinates (simulated from Python script with bend) ---
-const dx = 3.19;
-const total_length = 1920;
-const loop_starts = [118, 147, 271, 400, 466, 510, 630, 1300, 1800];
-const loop_lengths = [30,60,60,30,30,30,30,60,60];
-
-let x=[0], y=[0];
-let current=0, mainY=0, loop_dir=1;
-for(let i=0;i<loop_starts.length;i++){
-  let nextStart=loop_starts[i], L=loop_lengths[i];
-  while(current+dx<nextStart){ current+=dx; x.push(current); y.push(mainY); }
-  let r=L/(2*Math.PI);
-  let n=Math.floor(L/dx);
-  for(let j=0;j<n;j++){
-    let theta=2*Math.PI*j/n;
-    x.push(current+r*Math.cos(theta));
-    y.push(mainY+loop_dir*r*Math.sin(theta));
-  }
-  current+=L;
-  loop_dir*=-1;
-}
-while(current+dx<=total_length){ current+=dx; x.push(current); y.push(mainY); }
-
-// --- Convert to realistic lat/lon for map ---
-const baseLat=48.558;
-const baseLon=-123.174;
-const latScale=0.00005;
-const lonScale=0.00005;
-const cableCoords = x.map((val,i)=>[baseLat+y[i]*latScale, baseLon+(total_length-val)*lonScale]);
-
-// --- Add cable line and interactive points ---
-const cableLine = L.polyline(cableCoords,{color:'blue'}).addTo(map);
-cableCoords.forEach((c,i)=>{
-  L.circleMarker(c,{radius:4,color:'blue'}).addTo(map)
-    .bindPopup(`Cable Point ${i}`)
-    .on('click',()=>{
-      if(spectrogramIndex.length===0){ alert("Spectrograms not loaded yet"); return; }
-      let dist=i*dx;
-      let nearest = spectrogramIndex.reduce((prev,curr)=>Math.abs(curr.dist-dist)<Math.abs(prev.dist-dist)?curr:prev);
-      let img = document.createElement('img');
-      img.src = 'images/' + nearest.file;
-      let specDiv = document.getElementById('spec');
-      specDiv.innerHTML=''; specDiv.appendChild(img);
-    });
-});
-
-// --- Load Pintail boat track ---
-fetch('pintail_boat_track.html').then(res=>res.text()).then(txt=>{
-  let match=txt.match(/var\s+trackCoords\s*=\s*(\[[^\]]*\])/);
-  if(match){
-    let trackCoords = JSON.parse(match[1].replace(/'/g,'"'));
-    let line=L.polyline(trackCoords,{color:'red',dashArray:'5,5'}).addTo(map);
-    trackCoords.forEach((c,i)=>{
-      L.circleMarker(c,{radius:3,color:'red'}).addTo(map)
-        .bindPopup(`Pintail Track ${i}`);
-    });
-  }
-});
-
-// --- Load Pintail waypoints ---
-fetch('pintail_waypoints_track.html').then(res=>res.text()).then(txt=>{
-  let match=txt.match(/var\s+waypoints\s*=\s*(\[[^\]]*\])/);
-  if(match){
-    const waypoints = JSON.parse(match[1].replace(/'/g,'"'));
-    waypoints.forEach((wp,i)=>{
-      L.marker(wp).addTo(map).bindPopup(`Waypoint ${i}`);
-    });
-  }
-});
-
-// --- Fit map ---
-map.fitBounds(cableLine.getBounds());
-</script>
-
+    <script>
+        // Add current date
+        document.getElementById('currentDate').textContent = new Date().toLocaleDateString();
+    </script>
 </body>
 </html>
