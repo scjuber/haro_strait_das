@@ -6,79 +6,87 @@
 <title>Pintail Cable Spectrogram Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-  body { margin:0; padding:0; font-family: Arial, sans-serif; }
-  #map { height: 70vh; width: 100%; margin-bottom: 20px; }
-  #spectrogram { display: block; margin: auto; max-height: 30vh; border: 1px solid #ccc; }
+  body { margin:0; padding:0; font-family: Arial, sans-serif; background:#f2f2f2; }
+  #map { height: 70vh; width: 100%; margin-bottom: 10px; }
+  #spectrogram { display: block; margin: auto; max-height: 25vh; border: 2px solid #ccc; border-radius: 8px; }
+  #spec-title { text-align:center; margin:10px; font-weight:bold; }
   .header { text-align:center; margin: 20px; }
+  iframe { display:block; width:100%; height:400px; border:none; margin-top:20px; }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>Pintail Cable Map with Spectrograms</h1>
+  <h1>Pintail Cable Spectrogram Viewer</h1>
   <p>Click along the cable to view spectrograms</p>
 </div>
 
 <div id="map"></div>
 <img id="spectrogram" src="" alt="Click on cable to see spectrogram" />
-<div id="spec-title" style="text-align:center; margin:10px;"></div>
+<div id="spec-title"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-var map = L.map('map').setView([47.6, -122.3], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+var map = L.map('map').setView([48.556, -123.179], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18,
+  attribution: ''
+}).addTo(map);
 
-// --- Load spectrogram paths from spectrogram_index.txt ---
-var spectrograms = [];
+// --- Load spectrogram paths ---
+let spectrograms = [];
 fetch('spectrogram_index.txt')
   .then(resp => resp.text())
   .then(text => {
     spectrograms = text.split(/\r?\n/).filter(line => line.trim() !== '');
   });
 
-// --- Cable layout with gentle bend at ~600m ---
-var cable = [
+// --- Cable coordinates ---
+const cable = [
   [48.558194, -123.173432],
-  [48.556614, -123.17767],
+  [48.556614, -123.177670],
   [48.557296, -123.181350], // bend
   [48.555251, -123.181608],
   [48.547978, -123.183517]
-var cableLine = L.polyline(cable, {color:'blue', weight:3}).addTo(map);
+];
+const cableLine = L.polyline(cable, {color:'blue', weight:4}).addTo(map);
 map.fitBounds(cableLine.getBounds());
 
-// --- Click on cable to view spectrogram ---
-cableLine.on('click', function(e){
-  if(spectrograms.length === 0) return;
-  var nearestIndex = 0;
-  var minDist = Infinity;
-  cable.forEach(function(latlng, i){
-    var d = map.distance(latlng, e.latlng);
-    if(d < minDist){ minDist=d; nearestIndex=i; }
+// --- Click on cable to show nearest spectrogram ---
+cableLine.on('click', function(e) {
+  if (spectrograms.length === 0) return;
+
+  let nearestIndex = 0;
+  let minDist = Infinity;
+  cable.forEach((latlng, i) => {
+    const d = map.distance(latlng, e.latlng);
+    if (d < minDist) {
+      minDist = d;
+      nearestIndex = i;
+    }
   });
-  document.getElementById('spectrogram').src = spectrograms[nearestIndex % spectrograms.length];
-  document.getElementById('spec-title').textContent = `Channel ${nearestIndex}`;
+
+  const imgPath = spectrograms[nearestIndex % spectrograms.length];
+  document.getElementById('spectrogram').src = imgPath;
+  document.getElementById('spec-title').textContent = `Channel ${nearestIndex} — ${imgPath}`;
 });
 
-// --- Load Pintail boat track ---
+// --- Overlay Pintail boat track ---
 fetch('pintail_boat_track.html')
   .then(resp => resp.text())
   .then(html => {
-    var matches = html.match(/\[\s*[\d\.\-]+,\s*[\d\.\-]+\s*\]/g);
-    if(matches){
-      var coords = matches.map(s=>s.replace(/\[|\]/g,'').split(',').map(Number));
+    const matches = html.match(/\[\s*[\d\.\-]+,\s*[\d\.\-]+\s*\]/g);
+    if (matches) {
+      const coords = matches.map(s => s.replace(/\[|\]/g, '').split(',').map(Number));
       L.polyline(coords, {color:'green', weight:3}).addTo(map);
     }
   });
 
-// --- Load waypoints as iframe overlay ---
-var waypointsLayer = L.layerGroup().addTo(map);
-var iframe = L.DomUtil.create('iframe','waypointsFrame');
+// --- Load Pintail waypoints below the map ---
+const iframe = document.createElement('iframe');
 iframe.src = 'pintail_waypoints_track.html';
-iframe.style.width = '100%';
-iframe.style.height = '400px';
-iframe.style.border = 'none';
 document.body.appendChild(iframe);
-
 </script>
+
 </body>
 </html>
