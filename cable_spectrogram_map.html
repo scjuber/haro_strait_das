@@ -82,41 +82,22 @@ while(current_dist+dx<=total_length){
   current_dist+=dx; xs.push(current_dist); ys.push(main_y);
 }
 
-// Reverse so channel numbers increase R→L
+// ---------- Reverse direction (so 0 m is right end) ----------
 xs = xs.map(v => total_length - v);
 xs.reverse(); ys.reverse();
 const cumDist = xs.map((v,i)=>i*dx);
 
-// ---------- Map model to GPS preserving loops ----------
-const desiredBend = 600;  // m along cable
-let ibend = cumDist.findIndex(d=>d>=desiredBend);
-if(ibend<0) ibend = Math.floor(xs.length/2);
+// ---------- Map synthetic model (with loops) into GPS ----------
+const [gps_dx,gps_dy] = latlonToMetersDelta(gps_start[0], gps_start[1], gps_end[0], gps_end[1]);
+const magGps = Math.hypot(gps_dx,gps_dy);
+const ux=[gps_dx/magGps, gps_dy/magGps];
+const uy=[-ux[1], ux[0]];
+const scale = magGps / total_length;
 
-// compute model bend vector
-const [xb,yb] = [xs[ibend]-xs[0], ys[ibend]-ys[0]];
-const [gps_dx,gps_dy] = latlonToMetersDelta(gps_start[0], gps_start[1], gps_bend[0], gps_bend[1]);
-const magModel = Math.hypot(xb,yb);
-const magGps   = Math.hypot(gps_dx,gps_dy);
-
-// basis vectors for mapping
-let ux=[1,0], uy=[0,1];
-if(magGps>0){
-  ux = [gps_dx/magGps, gps_dy/magGps];
-  uy = [-ux[1], ux[0]];  // perpendicular
-}
-const scale = (magModel>0)? (magGps/magModel) : 1;
-
-// optional fine-scale adjust so total matches gps_end roughly
-const [gps_dx2,gps_dy2] = latlonToMetersDelta(gps_start[0], gps_start[1], gps_end[0], gps_end[1]);
-const totalGpsLen = Math.hypot(gps_dx2,gps_dy2);
-const scaleAdj = totalGpsLen / total_length;
-const totalScale = scale * scaleAdj;
-
-// map all model points preserving loops
 const cableLatLon = xs.map((xm,i)=>{
   const ym = ys[i];
-  const east = (xm - xs[0])*totalScale*ux[0] + ym*totalScale*uy[0];
-  const north= (xm - xs[0])*totalScale*ux[1] + ym*totalScale*uy[1];
+  const east = xm*scale*ux[0] + ym*scale*uy[0];
+  const north= xm*scale*ux[1] + ym*scale*uy[1];
   return metersDeltaToLatLon(gps_start[0], gps_start[1], east, north);
 });
 
