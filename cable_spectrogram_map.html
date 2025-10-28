@@ -39,8 +39,8 @@ const total_length = 1920;          // total cable length (m)
 const loopStarts = [118,147,271,400,466,510,630,1300,1800];
 const loopLengths = [30,60,60,30,30,30,30,60,60];
 
+// approximate cable GPS path
 const gps_start = [48.558194, -123.173432];
-const gps_bend  = [48.557296, -123.181350];
 const gps_end   = [48.547978, -123.183517];
 
 // ---------- helpers ----------
@@ -82,12 +82,14 @@ while(current_dist+dx<=total_length){
   current_dist+=dx; xs.push(current_dist); ys.push(main_y);
 }
 
-// ---------- Reverse direction (so 0 m is right end) ----------
+// ---------- Reverse channel direction (right-to-left) ----------
 xs = xs.map(v => total_length - v);
 xs.reverse(); ys.reverse();
-const cumDist = xs.map((v,i)=>i*dx);
 
-// ---------- Map synthetic model (with loops) into GPS ----------
+// ---------- Distance calibration (channel 25 = 80 m) ----------
+const cumDist = xs.map((v,i)=>i*dx - 25*dx + 80);
+
+// ---------- Map model to GPS line ----------
 const [gps_dx,gps_dy] = latlonToMetersDelta(gps_start[0], gps_start[1], gps_end[0], gps_end[1]);
 const magGps = Math.hypot(gps_dx,gps_dy);
 const ux=[gps_dx/magGps, gps_dy/magGps];
@@ -108,22 +110,19 @@ const cableLine = L.polyline(cableLatLon, {color:'blue', weight:3}).addTo(map);
 map.fitBounds(cableLine.getBounds());
 
 // ---------- Channel markers + spectrograms ----------
-let channelMarkers=[];
 fetch('spectrogram_index.txt')
  .then(r=>r.text())
  .then(t=>{
    const specs=t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
    for(let i=0;i<cableLatLon.length;i++){
      const latlng=cableLatLon[i];
-     const color=(i===25)?'red':'blue';
-     const m=L.circleMarker(latlng,{radius:3,color,fill:true,fillOpacity:0.9}).addTo(map);
+     const m=L.circleMarker(latlng,{radius:3,color:'blue',fill:true,fillOpacity:0.9}).addTo(map);
      const idx=Math.min(Math.round((i/(cableLatLon.length-1))*(specs.length-1)),specs.length-1);
      const chosen=specs[idx];
      m.on('click',()=>{
        document.getElementById('spec-img').src=chosen;
-       document.getElementById('spec-title').textContent=`Channel ${i} — ${(cumDist[i]).toFixed(2)} m`;
+       document.getElementById('spec-title').textContent=`Channel ${i} — ${(cumDist[i]).toFixed(1)} m`;
      });
-     channelMarkers.push(m);
    }
  });
 
