@@ -1,0 +1,19 @@
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Raw data and audio
+*.h5
+*.wav
+
+# Generated figures
+JASA-whales/
+separate_figures/
+combined_event_figures/
+straight_section_figures/
+*.png
+*.jpeg
+*.jpg
+
+.DS_Store

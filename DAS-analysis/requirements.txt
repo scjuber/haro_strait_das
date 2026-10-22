@@ -1,0 +1,11 @@
+numpy>=2.0
+scipy>=1.14
+matplotlib>=3.9
+h5py>=3.11
+pandas>=2.2
+requests>=2.32
+librosa>=0.10
+pyproj>=3.6
+roseus>=2.0
+ipython
+jupyter
